@@ -73,7 +73,7 @@ class FujitsuACOutsideQuietSwitch(SwitchEntity):
             name=name,
             manufacturer="Fujitsu",
             model="AR-RWE3E / ARREW4E",
-            sw_version="0.1.1",
+            sw_version="0.1.2",
         )
 
     @property
