@@ -168,6 +168,53 @@ tap_action:
         temperature: 21
 ```
 
+An automation to heat to 21 °C at 5:00 AM every morning:
+
+```yaml
+automation:
+    - alias: "Heat to 21°C at 5am"
+      trigger:
+          - platform: time
+            at: "04:50:00"
+      action:
+          - service: fujitsu_ac_ir.set_on_timer
+            target:
+                entity_id: climate.lounge_ac
+            data:
+                time: "05:00"
+                mode: heat
+                temperature: 21
+                fan_mode: auto
+      mode: single
+```
+
+The trigger fires at 4:50 AM, and the time: "05:00" parameter tells the
+integration to compute a 10-minute delay and encode that into the IR command.
+The trigger time just needs to be shortly before the target — it doesn't have
+to be exact since the time parameter handles the offset calculation.
+
+Alternatively, if you don't want to think about trigger timing, trigger at
+5:00 AM directly with a 1-minute on-timer (basically "straight away", but
+actually comes on at 5:01am):
+
+```yaml
+automation:
+    - alias: "Heat to 21°C at 5am"
+      trigger:
+          - platform: time
+            at: "05:00:00"
+      action:
+          - service: fujitsu_ac_ir.set_on_timer
+            target:
+                entity_id: climate.lounge_ac
+            data:
+                minutes: 1
+                mode: heat
+                temperature: 21
+                fan_mode: auto
+      mode: single
+```
+
 See the [Integration Documentation](docs/integration.md#timers) for full
 details, all service parameters, and automation examples.
 
