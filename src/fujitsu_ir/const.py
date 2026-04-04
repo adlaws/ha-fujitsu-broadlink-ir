@@ -126,6 +126,14 @@ TIMER_STOP = 0x00     # Stop all timers
 TIMER_SLEEP = 0x01    # Sleep timer
 TIMER_OFF = 0x02      # Off timer
 TIMER_ON = 0x03       # On timer
+TIMER_MAX = 720       # Maximum timer value in minutes (12 hours)
+
+TIMER_NAMES = {
+    TIMER_STOP: "Off",
+    TIMER_SLEEP: "Sleep",
+    TIMER_OFF: "Off Timer",
+    TIMER_ON: "On Timer",
+}
 
 # =============================================================================
 # Temperature

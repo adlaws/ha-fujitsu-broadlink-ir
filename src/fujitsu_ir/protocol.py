@@ -68,6 +68,12 @@ from .const import (
     SWING_NAMES,
     SWING_OFF,
     TEMP_OFFSET_C,
+    TIMER_MAX,
+    TIMER_NAMES,
+    TIMER_OFF,
+    TIMER_ON,
+    TIMER_SLEEP,
+    TIMER_STOP,
 )
 
 
@@ -102,6 +108,11 @@ class FujitsuACState:
     :param device_id: Remote device ID (0–3).
     :param protocol: Protocol version byte (``0x31`` for AR-RWE3E / ARREW4E,
         ``0x30`` for standard models).
+    :param timer_type: Timer mode (``TIMER_STOP``, ``TIMER_SLEEP``,
+        ``TIMER_OFF``, ``TIMER_ON``).  Only one timer can be active.
+    :param off_timer_minutes: Duration in minutes for the off or sleep timer
+        (0–720).  Also used when ``timer_type`` is ``TIMER_SLEEP``.
+    :param on_timer_minutes: Duration in minutes for the on timer (0–720).
     """
 
     power: bool = True
@@ -114,6 +125,9 @@ class FujitsuACState:
     clean: bool = False
     device_id: int = 0
     protocol: int = PROTOCOL_ARREW4E
+    timer_type: int = TIMER_STOP
+    off_timer_minutes: int = 0
+    on_timer_minutes: int = 0
 
     def __str__(self) -> str:
         """Return a human-readable summary of the AC state.
@@ -252,14 +266,29 @@ class FujitsuAC:
         data[9] = self.state.mode & 0x07
         if self.state.clean:
             data[9] |= (1 << 3)
+        data[9] |= (self.state.timer_type & 0x03) << 4
 
         # Byte 10: Fan (bits 2:0), Swing (bits 5:4)
         data[10] = (self.state.fan & 0x07) | ((self.state.swing & 0x03) << 4)
 
-        # Bytes 11-13: Timers (all zero — no timer support for now)
-        data[11] = 0x00
-        data[12] = 0x00
-        data[13] = 0x00
+        # Bytes 11-13: Timers
+        #   OffTimer (11 bits) | OffTimerEnable (1 bit) |
+        #   OnTimer (11 bits)  | OnTimerEnable (1 bit)
+        off_val = min(TIMER_MAX, max(0, self.state.off_timer_minutes))
+        on_val = min(TIMER_MAX, max(0, self.state.on_timer_minutes))
+        off_enable = self.state.timer_type in (TIMER_OFF, TIMER_SLEEP) and off_val > 0
+        on_enable = self.state.timer_type == TIMER_ON and on_val > 0
+
+        data[11] = off_val & 0xFF
+        data[12] = (
+            ((off_val >> 8) & 0x07)
+            | ((1 << 3) if off_enable else 0)
+            | ((on_val & 0x0F) << 4)
+        )
+        data[13] = (
+            ((on_val >> 4) & 0x7F)
+            | ((1 << 7) if on_enable else 0)
+        )
 
         # Byte 14: Filter (bit 3), Unknown=1 (bit 5), OutsideQuiet (bit 7)
         #   Bit 0 is always set on ARREW4E / AR-RWE3E protocol (0x31)
@@ -357,10 +386,19 @@ class FujitsuAC:
             # Byte 9: Mode, Clean, TimerType
             ac.state.mode = data[9] & 0x07
             ac.state.clean = bool(data[9] & (1 << 3))
+            ac.state.timer_type = (data[9] >> 4) & 0x03
 
             # Byte 10: Fan, Swing
             ac.state.fan = data[10] & 0x07
             ac.state.swing = (data[10] >> 4) & 0x03
+
+            # Bytes 11-13: Timers
+            off_timer = (data[11] & 0xFF) | ((data[12] & 0x07) << 8)
+            on_timer = ((data[12] >> 4) & 0x0F) | ((data[13] & 0x7F) << 4)
+            if ac.state.timer_type in (TIMER_OFF, TIMER_SLEEP):
+                ac.state.off_timer_minutes = off_timer
+            elif ac.state.timer_type == TIMER_ON:
+                ac.state.on_timer_minutes = on_timer
 
             # Byte 14: Filter, OutsideQuiet
             ac.state.filter_active = bool(data[14] & (1 << 3))
@@ -432,6 +470,17 @@ class FujitsuAC:
                 lines.append("  Filter: ON")
             if self.state.clean:
                 lines.append("  Clean:  ON")
+            if self.state.timer_type != TIMER_STOP:
+                timer_name = TIMER_NAMES.get(
+                    self.state.timer_type, f"Unknown({self.state.timer_type})"
+                )
+                if self.state.timer_type in (TIMER_OFF, TIMER_SLEEP):
+                    mins = self.state.off_timer_minutes
+                else:
+                    mins = self.state.on_timer_minutes
+                lines.append(
+                    f"  Timer:  {timer_name} {mins // 60:02d}:{mins % 60:02d}"
+                )
 
         return "\n".join(lines)
 
@@ -484,7 +533,7 @@ class FujitsuAC:
             timer_type = (data[9] >> 4) & 0x03
             lines.append(f"  [9]   Mode:      {mode} ({MODE_NAMES.get(mode, '?')})")
             lines.append(f"         Clean:     {clean}")
-            lines.append(f"         TimerType: {timer_type}")
+            lines.append(f"         TimerType: {timer_type} ({TIMER_NAMES.get(timer_type, '?')})")
 
             fan = data[10] & 0x07
             swing = (data[10] >> 4) & 0x03
@@ -492,6 +541,12 @@ class FujitsuAC:
             lines.append(f"         Swing:     {swing} ({SWING_NAMES.get(swing, '?')})")
 
             lines.append(f"  [11-13] Timers:  0x{data[11]:02X} 0x{data[12]:02X} 0x{data[13]:02X}")
+            off_timer = (data[11] & 0xFF) | ((data[12] & 0x07) << 8)
+            off_enable = bool(data[12] & 0x08)
+            on_timer = ((data[12] >> 4) & 0x0F) | ((data[13] & 0x7F) << 4)
+            on_enable = bool(data[13] & 0x80)
+            lines.append(f"         OffTimer:  {off_timer} min (enable={off_enable})")
+            lines.append(f"         OnTimer:   {on_timer} min (enable={on_enable})")
 
             filter_on = bool(data[14] & 0x08)
             unknown = bool(data[14] & 0x20)

@@ -16,7 +16,7 @@ and provides:
 * A standalone Python library for encoding and decoding Fujitsu IR commands
 * A developer tool for analysing recorded Broadlink IR codes
 * A Home Assistant custom integration (`climate` platform) that drives the
-  AC through a Broadlink IR blaster
+  AC through a Broadlink IR blaster, including on/off/sleep timer support
 
 See the [Integration Documentation](docs/integration.md) for detailed
 configuration and usage within Home Assistant.
@@ -46,6 +46,7 @@ ha-fujitsu/
 │   ├── const.py                       Integration constants
 │   ├── ir_codec.py                    IR encode / decode logic
 │   ├── manifest.json
+│   ├── services.yaml                  Timer entity service definitions
 │   ├── strings.json
 │   ├── switch.py                      Outside-unit quiet switch
 │   └── translations/en.json

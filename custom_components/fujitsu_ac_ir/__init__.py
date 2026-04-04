@@ -58,19 +58,47 @@ async def async_send_ir_command(
         data.ir_state.outside_quiet,
     )
 
+    await _send_broadlink_code(hass, data.broadlink_entity, broadlink_code)
+
+
+async def async_send_ir_code(
+    hass: HomeAssistant,
+    broadlink_entity: str,
+    broadlink_code: str,
+) -> None:
+    """Send a pre-built Broadlink base64 IR code.
+
+    :param hass: Home Assistant instance.
+    :param broadlink_entity: Entity ID of the Broadlink remote.
+    :param broadlink_code: Base64-encoded Broadlink IR code.
+    """
+    await _send_broadlink_code(hass, broadlink_entity, broadlink_code)
+
+
+async def _send_broadlink_code(
+    hass: HomeAssistant,
+    broadlink_entity: str,
+    broadlink_code: str,
+) -> None:
+    """Send a Broadlink base64 IR code via the remote.send_command service.
+
+    :param hass: Home Assistant instance.
+    :param broadlink_entity: Entity ID of the Broadlink remote.
+    :param broadlink_code: Base64-encoded Broadlink IR code.
+    """
     try:
         await hass.services.async_call(
             "remote",
             "send_command",
             {
-                "entity_id": data.broadlink_entity,
+                "entity_id": broadlink_entity,
                 "command": f"b64:{broadlink_code}",
             },
             blocking=True,
         )
     except Exception:  # noqa: BLE001  # IR send failures are non-fatal
         _LOGGER.exception(
-            "Failed to send IR command via %s", data.broadlink_entity
+            "Failed to send IR command via %s", broadlink_entity
         )
 
 

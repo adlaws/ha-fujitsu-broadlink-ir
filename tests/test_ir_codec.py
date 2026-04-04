@@ -58,6 +58,11 @@ from fujitsu_ac_ir.const import (
     SWING_HORIZ,
     SWING_OFF,
     SWING_VERT,
+    TIMER_MAX,
+    TIMER_OFF,
+    TIMER_ON,
+    TIMER_SLEEP,
+    TIMER_STOP,
 )
 from fujitsu_ac_ir.ir_codec import FujitsuACCodec, FujitsuACState
 
@@ -322,3 +327,145 @@ class TestCodecBroadlink:
         assert decoded.temperature == 22.5
         assert decoded.fan == FAN_LOW
         assert decoded.swing == SWING_HORIZ
+
+
+# =============================================================================
+# Timer encoding (integration codec)
+# =============================================================================
+
+
+class TestCodecTimerEncoding:
+    """Tests for timer encoding in the integration codec."""
+
+    def test_build_off_timer_checksum(self) -> None:
+        """Off timer code has a valid checksum."""
+        state = FujitsuACState(power=True)
+        b64 = FujitsuACCodec.build_off_timer(state, 60)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        assert len(ir_bytes) == STATE_LENGTH
+        assert (sum(ir_bytes[7:16]) & 0xFF) == 0
+
+    def test_build_off_timer_encodes_type(self) -> None:
+        """Off timer sets timer type to TIMER_OFF in byte 9."""
+        state = FujitsuACState(power=True)
+        b64 = FujitsuACCodec.build_off_timer(state, 30)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        assert (ir_bytes[9] >> 4) & 0x03 == TIMER_OFF
+
+    def test_build_off_timer_value(self) -> None:
+        """Off timer encodes the correct minute value."""
+        state = FujitsuACState(power=True)
+        b64 = FujitsuACCodec.build_off_timer(state, 30)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        off_timer = (ir_bytes[11] & 0xFF) | ((ir_bytes[12] & 0x07) << 8)
+        assert off_timer == 30
+        assert bool(ir_bytes[12] & 0x08) is True  # OffTimerEnable
+
+    def test_build_on_timer_value(self) -> None:
+        """On timer encodes the correct minute value."""
+        state = FujitsuACState(power=True, mode=MODE_COOL, temperature=24.0)
+        b64 = FujitsuACCodec.build_on_timer(state, 510)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        assert (ir_bytes[9] >> 4) & 0x03 == TIMER_ON
+        on_timer = ((ir_bytes[12] >> 4) & 0x0F) | ((ir_bytes[13] & 0x7F) << 4)
+        assert on_timer == 510
+        assert bool(ir_bytes[13] & 0x80) is True  # OnTimerEnable
+
+    def test_build_on_timer_max(self) -> None:
+        """On timer at maximum (720 minutes / 12 hours)."""
+        state = FujitsuACState(power=True)
+        b64 = FujitsuACCodec.build_on_timer(state, TIMER_MAX)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        on_timer = ((ir_bytes[12] >> 4) & 0x0F) | ((ir_bytes[13] & 0x7F) << 4)
+        assert on_timer == TIMER_MAX
+
+    def test_build_sleep_timer_value(self) -> None:
+        """Sleep timer encodes correctly."""
+        state = FujitsuACState(power=True)
+        b64 = FujitsuACCodec.build_sleep_timer(state, 180)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        assert (ir_bytes[9] >> 4) & 0x03 == TIMER_SLEEP
+        off_timer = (ir_bytes[11] & 0xFF) | ((ir_bytes[12] & 0x07) << 8)
+        assert off_timer == 180
+
+    def test_build_cancel_timer(self) -> None:
+        """Cancel timer produces timer type TIMER_STOP with zero values."""
+        state = FujitsuACState(power=True)
+        b64 = FujitsuACCodec.build_cancel_timer(state)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        assert (ir_bytes[9] >> 4) & 0x03 == TIMER_STOP
+        assert ir_bytes[11] == 0x00
+        assert ir_bytes[12] == 0x00
+        assert ir_bytes[13] == 0x00
+
+    def test_build_cancel_timer_when_off(self) -> None:
+        """Cancel timer with power=False sends a short off command."""
+        state = FujitsuACState(power=False)
+        b64 = FujitsuACCodec.build_cancel_timer(state)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        assert len(ir_bytes) == STATE_LENGTH_SHORT
+
+    def test_build_off_timer_rejects_zero(self) -> None:
+        """Off timer rejects 0 minutes."""
+        state = FujitsuACState(power=True)
+        with pytest.raises(ValueError, match="1–720"):
+            FujitsuACCodec.build_off_timer(state, 0)
+
+    def test_build_off_timer_rejects_over_max(self) -> None:
+        """Off timer rejects values over TIMER_MAX."""
+        state = FujitsuACState(power=True)
+        with pytest.raises(ValueError, match="1–720"):
+            FujitsuACCodec.build_off_timer(state, 721)
+
+    def test_build_on_timer_preserves_state(self) -> None:
+        """On timer includes mode, temp, fan, swing from the state."""
+        state = FujitsuACState(
+            power=True,
+            mode=MODE_HEAT,
+            temperature=28.0,
+            fan=FAN_HIGH,
+            swing=SWING_HORIZ,
+        )
+        b64 = FujitsuACCodec.build_on_timer(state, 60)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        decoded = FujitsuACCodec.decode_bytes(ir_bytes)
+        assert decoded.mode == MODE_HEAT
+        assert decoded.temperature == 28.0
+        assert decoded.fan == FAN_HIGH
+        assert decoded.swing == SWING_HORIZ
+
+
+# =============================================================================
+# Timer decoding (integration codec)
+# =============================================================================
+
+
+class TestCodecTimerDecoding:
+    """Tests for timer decoding in the integration codec."""
+
+    def test_decode_off_timer(self) -> None:
+        """Decode an off timer message."""
+        state = FujitsuACState(power=True)
+        b64 = FujitsuACCodec.build_off_timer(state, 120)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        decoded = FujitsuACCodec.decode_bytes(ir_bytes)
+        assert decoded.timer_type == TIMER_OFF
+        assert decoded.off_timer_minutes == 120
+
+    def test_decode_on_timer(self) -> None:
+        """Decode an on timer message."""
+        state = FujitsuACState(power=True)
+        b64 = FujitsuACCodec.build_on_timer(state, 450)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        decoded = FujitsuACCodec.decode_bytes(ir_bytes)
+        assert decoded.timer_type == TIMER_ON
+        assert decoded.on_timer_minutes == 450
+
+    def test_decode_sleep_timer(self) -> None:
+        """Decode a sleep timer message."""
+        state = FujitsuACState(power=True)
+        b64 = FujitsuACCodec.build_sleep_timer(state, 90)
+        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        decoded = FujitsuACCodec.decode_bytes(ir_bytes)
+        assert decoded.timer_type == TIMER_SLEEP
+        assert decoded.off_timer_minutes == 90

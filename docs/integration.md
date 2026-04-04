@@ -51,6 +51,10 @@ After completing the flow a `climate` entity and an **Outside Quiet**
 | Fan speeds | Auto, High, Medium, Low, Quiet |
 | Swing modes | Off, Vertical, Horizontal, Both |
 | Outside-unit quiet | On / Off (separate switch entity) |
+| Off timer | Turn off after 1–720 minutes (or at a specific time) |
+| On timer | Turn on after 1–720 minutes with specified settings |
+| Sleep timer | Gradual “comfort wind-down” shut-off after 1–720 minutes |
+| Cancel timer | Cancel any active timer |
 
 ### HVAC Modes
 
@@ -86,6 +90,134 @@ compressor runs at reduced noise levels.
 Toggling the switch while the AC is on sends a full state IR command
 immediately.  Toggling it while the AC is off stores the setting so it
 will be included in the next power-on command.
+
+### Timers
+
+Four entity services are registered on the climate entity for timer
+control.  Each accepts either a **minutes** parameter (duration from
+now) or a **time** parameter (wall-clock time, offset computed
+automatically).
+
+#### `fujitsu_ac_ir.set_off_timer`
+
+Turn the AC off after a duration.  The AC continues running with its
+current settings until the timer expires.
+
+```yaml
+service: fujitsu_ac_ir.set_off_timer
+target:
+    entity_id: climate.lounge_ac
+data:
+    minutes: 30
+```
+
+Or using a wall-clock time:
+
+```yaml
+service: fujitsu_ac_ir.set_off_timer
+target:
+    entity_id: climate.lounge_ac
+data:
+    time: "23:00"
+```
+
+#### `fujitsu_ac_ir.set_on_timer`
+
+Turn the AC on after a duration.  You can optionally specify the
+mode, temperature, fan speed, and swing it should use:
+
+```yaml
+service: fujitsu_ac_ir.set_on_timer
+target:
+    entity_id: climate.lounge_ac
+data:
+    time: "06:00"
+    mode: cool
+    temperature: 24
+    fan_mode: auto
+    swing_mode: horizontal
+```
+
+| Parameter | Valid values |
+|-----------|-------------|
+| `mode` | `auto`, `cool`, `heat`, `dry`, `fan_only` |
+| `fan_mode` | `auto`, `high`, `medium`, `low`, `quiet` |
+| `swing_mode` | `off`, `vertical`, `horizontal`, `both` |
+
+If mode/temperature/fan/swing are omitted, the current entity settings
+are used.
+
+#### `fujitsu_ac_ir.set_sleep_timer`
+
+Activate the sleep timer.  This is similar to the off timer but the AC
+unit manages a gradual comfort wind-down (the exact behaviour depends on
+the AC model).
+
+```yaml
+service: fujitsu_ac_ir.set_sleep_timer
+target:
+    entity_id: climate.lounge_ac
+data:
+    minutes: 120
+```
+
+#### `fujitsu_ac_ir.cancel_timer`
+
+Cancel any active timer (on, off, or sleep).  Sends the current state
+with the timer cleared.
+
+```yaml
+service: fujitsu_ac_ir.cancel_timer
+target:
+    entity_id: climate.lounge_ac
+```
+
+#### Timer Limits
+
+* Maximum duration: **720 minutes** (12 hours).
+* When using the *time* parameter, if the target time is in the past
+  (today), the timer wraps to the same time tomorrow.
+* Only one timer type can be active at a time (setting a new timer
+  replaces any existing one).
+* The AC unit itself has no internal clock.  The timer value is a
+  **duration from now** encoded in the IR command.
+
+### Automation Examples
+
+Turn the AC off at 11 PM every night:
+
+```yaml
+automation:
+    - alias: "AC off at 11pm"
+      trigger:
+          - platform: time
+            at: "22:30:00"
+      action:
+          - service: fujitsu_ac_ir.set_off_timer
+            target:
+                entity_id: climate.lounge_ac
+            data:
+                minutes: 30
+```
+
+Pre-cool the bedroom before wake-up:
+
+```yaml
+automation:
+    - alias: "Pre-cool bedroom"
+      trigger:
+          - platform: time
+            at: "05:30:00"
+      action:
+          - service: fujitsu_ac_ir.set_on_timer
+            target:
+                entity_id: climate.bedroom_ac
+            data:
+                minutes: 30
+                mode: cool
+                temperature: 23
+                fan_mode: quiet
+```
 
 ## How Commands Are Sent
 
@@ -219,6 +351,7 @@ speed dropdown of the standard climate card.
 | `const.py` | Protocol constants and configuration keys |
 | `ir_codec.py` | Self-contained IR encoder/decoder (`FujitsuACCodec`, `FujitsuACState`) |
 | `switch.py` | `FujitsuACOutsideQuietSwitch` entity for outside-unit quiet mode |
+| `services.yaml` | Timer service definitions (off, on, sleep, cancel) |
 | `manifest.json` | Integration metadata (domain, version, dependencies) |
 | `strings.json` | Default UI strings |
 | `translations/en.json` | English translations for the configuration flow |
@@ -233,18 +366,13 @@ internal clock via infrared. Bytes 11–13 of a 16-byte command frame carry
 time — they are not an absolute clock and there is no separate "set clock"
 command in the protocol.
 
-This was confirmed by examining the
-[IRremoteESP8266](https://github.com/crankyoldgit/IRremoteESP8266) project,
-the most comprehensive open-source IR protocol library available. Its
-`IRFujitsuAC` class implements encode/decode for the full Fujitsu protocol
-family but provides no `setClock` or `setCurrentTime` method. By contrast,
-other manufacturers (Daikin, Mitsubishi, Panasonic, Haier, and others) do
-expose clock-setting commands, which IRremoteESP8266 supports. The absence
-in the Fujitsu implementation is a limitation of the protocol itself, not of
-this integration.
+This integration **does** support the relative timer functionality.  Timer
+values represent a **duration from now** in minutes (1–720).  When you use
+the *time* parameter in a timer service call, Home Assistant computes the
+offset from the current wall-clock time automatically.
 
-If your unit displays the wrong time, it must be set manually using the
-physical remote control.
+If your unit displays the wrong time on its screen, it must be set manually
+using the physical remote control.
 
 ### Acknowledgements
 

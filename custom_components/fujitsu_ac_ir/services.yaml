@@ -1,0 +1,125 @@
+set_off_timer:
+  name: Set Off Timer
+  description: >
+    Set the air conditioner to turn off after a specified duration or at a
+    specific time.  The AC continues running with its current settings until
+    the timer expires.  Specify either 'minutes' or 'time', not both.
+  fields:
+    minutes:
+      name: Minutes
+      description: Number of minutes until the AC turns off (1–720).
+      example: 30
+      selector:
+        number:
+          min: 1
+          max: 720
+          unit_of_measurement: minutes
+    time:
+      name: Time
+      description: >
+        Wall-clock time to turn off (HH:MM).  The offset from now is
+        calculated automatically.  If the time is in the past, it wraps
+        to the next day.
+      example: "23:00"
+      selector:
+        time:
+
+set_on_timer:
+  name: Set On Timer
+  description: >
+    Set the air conditioner to turn on after a specified duration or at a
+    specific time.  Optionally override the mode, temperature, fan speed,
+    and swing for the state the AC should use when the timer fires.
+    Specify either 'minutes' or 'time', not both.
+  fields:
+    minutes:
+      name: Minutes
+      description: Number of minutes until the AC turns on (1–720).
+      example: 30
+      selector:
+        number:
+          min: 1
+          max: 720
+          unit_of_measurement: minutes
+    time:
+      name: Time
+      description: >
+        Wall-clock time to turn on (HH:MM).  The offset from now is
+        calculated automatically.
+      example: "06:00"
+      selector:
+        time:
+    mode:
+      name: Mode
+      description: HVAC mode to use when the AC turns on.
+      example: cool
+      selector:
+        select:
+          options:
+            - auto
+            - cool
+            - heat
+            - dry
+            - fan_only
+    temperature:
+      name: Temperature
+      description: Target temperature in °C (16–30).
+      example: 24
+      selector:
+        number:
+          min: 16
+          max: 30
+          step: 0.5
+          unit_of_measurement: °C
+    fan_mode:
+      name: Fan Mode
+      description: Fan speed to use when the AC turns on.
+      example: auto
+      selector:
+        select:
+          options:
+            - auto
+            - high
+            - medium
+            - low
+            - quiet
+    swing_mode:
+      name: Swing Mode
+      description: Swing mode to use when the AC turns on.
+      example: "off"
+      selector:
+        select:
+          options:
+            - "off"
+            - vertical
+            - horizontal
+            - both
+
+set_sleep_timer:
+  name: Set Sleep Timer
+  description: >
+    Activate the sleep timer.  The AC turns off after the specified
+    duration with gradual comfort adjustments managed by the AC unit.
+    Specify either 'minutes' or 'time', not both.
+  fields:
+    minutes:
+      name: Minutes
+      description: Number of minutes until the AC enters sleep mode (1–720).
+      example: 120
+      selector:
+        number:
+          min: 1
+          max: 720
+          unit_of_measurement: minutes
+    time:
+      name: Time
+      description: >
+        Wall-clock time to sleep-off (HH:MM).  The offset from now is
+        calculated automatically.
+      example: "01:00"
+      selector:
+        time:
+
+cancel_timer:
+  name: Cancel Timer
+  description: Cancel any active timer (on, off, or sleep).

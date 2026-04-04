@@ -58,6 +58,10 @@ After completing the flow a `climate` entity and an **Outside Quiet**
 | Fan speeds | Auto, High, Medium, Low, Quiet |
 | Swing modes\* | Off, Vertical, Horizontal, Both |
 | Outside-unit quiet | On / Off (separate switch entity) |
+| Off timer | Turn off after 1–720 minutes (entity service) |
+| On timer | Turn on after 1–720 minutes (entity service) |
+| Sleep timer | Gradual temperature ramp then off (entity service) |
+| Cancel timer | Clear any active timer (entity service) |
 
 > *\* Note that not all swing modes are supported on all models*
 
@@ -97,6 +101,75 @@ compressor runs at reduced noise levels.
 Toggling the switch while the AC is on sends a full state IR command
 immediately.  Toggling it while the AC is off stores the setting so it
 will be included in the next power-on command.
+
+### Timers
+
+The integration exposes four entity services for controlling the AC's
+built-in timers:
+
+| Service | Description |
+|---------|-------------|
+| `set_off_timer` | Turn the AC off after a delay (1–720 min) |
+| `set_on_timer` | Turn the AC on after a delay, with optional mode/temp/fan/swing |
+| `set_sleep_timer` | Gradual temperature adjustment then power off |
+| `cancel_timer` | Clear any active timer |
+
+Timers accept either `minutes` (integer, 1–720) or `time` (a wall-clock
+time string like `"22:30"` — the integration calculates the offset
+automatically).
+
+```yaml
+service: fujitsu_ac_ir.set_off_timer
+target:
+    entity_id: climate.lounge_ac
+data:
+    minutes: 120
+```
+
+```yaml
+service: fujitsu_ac_ir.set_on_timer
+target:
+    entity_id: climate.lounge_ac
+data:
+    time: "06:00"
+    mode: cool
+    temperature: 24
+```
+
+A simple button card to turn off the AC in 30 minutes:
+
+```yaml
+type: button
+name: "AC Off in 30 min"
+icon: mdi:timer-outline
+tap_action:
+    action: perform-action
+    perform_action: fujitsu_ac_ir.set_off_timer
+    target:
+        entity_id: climate.lounge_ac
+    data:
+        minutes: 30
+```
+
+Turn the heater on at 5 AM to warm up to 21°C:
+
+```yaml
+type: button
+name: "Heat to 21°C at 5:00 am"
+icon: mdi:radiator
+tap_action:
+    action: perform-action
+    perform_action: fujitsu_ac_ir.set_on_timer
+    target:
+        entity_id: climate.lounge_ac
+    data:
+        time: "05:00"
+        mode: heat
+        temperature: 21
+```
+
+See the [Integration Documentation](docs/integration.md#timers) for full
+details, all service parameters, and automation examples.
 
 ## Limitations
 
@@ -175,7 +248,7 @@ features:
           - both
 ```
 
-### What About Custom Button Cards
+### What About Custom Button Cards?
 
 Because this integration implements the full `ClimateEntity` API, you do
 **not** need a grid of custom buttons or an `input_number` helper to
@@ -247,6 +320,7 @@ speed dropdown of the standard climate card.
 | `config_flow.py` | UI configuration flow — selects the Broadlink remote entity |
 | `const.py` | Protocol constants and configuration keys |
 | `ir_codec.py` | Self-contained IR encoder/decoder (`FujitsuACCodec`, `FujitsuACState`) |
+| `services.yaml` | Entity service definitions (timer services) |
 | `switch.py` | `FujitsuACOutsideQuietSwitch` entity for outside-unit quiet mode |
 | `manifest.json` | Integration metadata (domain, version, dependencies) |
 | `strings.json` | Default UI strings |

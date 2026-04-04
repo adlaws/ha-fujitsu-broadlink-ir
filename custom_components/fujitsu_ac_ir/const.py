@@ -84,6 +84,15 @@ MAX_TEMP = 30.0
 TEMP_STEP = 0.5
 
 # =============================================================================
+# Timer Types (2 bits, Byte 9 bits 5:4)
+# =============================================================================
+TIMER_STOP = 0x00     # Stop all timers
+TIMER_SLEEP = 0x01    # Sleep timer
+TIMER_OFF = 0x02      # Off timer
+TIMER_ON = 0x03       # On timer
+TIMER_MAX = 720       # Maximum timer value in minutes (12 hours)
+
+# =============================================================================
 # Broadlink IR Format
 # =============================================================================
 BROADLINK_IR_TYPE = 0x26

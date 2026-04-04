@@ -37,6 +37,11 @@ from fujitsu_ir.const import (
     SWING_HORIZ,
     SWING_OFF,
     SWING_VERT,
+    TIMER_MAX,
+    TIMER_OFF,
+    TIMER_ON,
+    TIMER_SLEEP,
+    TIMER_STOP,
 )
 from fujitsu_ir.protocol import FujitsuAC, FujitsuACState, SHORT_COMMANDS
 
@@ -556,3 +561,287 @@ class TestDescribe:
         text = FujitsuAC.describe_bytes(data)
         assert "Checksum" in text
         assert "Protocol" in text
+
+
+# =============================================================================
+# Timer encoding
+# =============================================================================
+
+
+class TestTimerEncoding:
+    """Tests for timer encoding in bytes 9, 11-13."""
+
+    def test_no_timer_default(self) -> None:
+        """Default state has no timer set (bytes 11-13 all zero)."""
+        ac = FujitsuAC()
+        data = ac.encode_on()
+        assert data[11] == 0x00
+        assert data[12] == 0x00
+        assert data[13] == 0x00
+        assert (data[9] >> 4) & 0x03 == TIMER_STOP
+
+    def test_off_timer_30m(self) -> None:
+        """Off timer 30 minutes matches known IRremoteESP8266 test vector."""
+        state = FujitsuACState(
+            power=True,
+            mode=MODE_AUTO,
+            temperature=26.0,
+            fan=FAN_HIGH,
+            swing=SWING_OFF,
+            protocol=PROTOCOL_STANDARD,
+            timer_type=TIMER_OFF,
+            off_timer_minutes=30,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        # Timer type in byte 9 bits 5:4
+        assert (data[9] >> 4) & 0x03 == TIMER_OFF
+        # Decode timer bytes
+        off_timer = (data[11] & 0xFF) | ((data[12] & 0x07) << 8)
+        off_enable = bool(data[12] & 0x08)
+        assert off_timer == 30
+        assert off_enable is True
+
+    def test_off_timer_11h(self) -> None:
+        """Off timer 11 hours (660 minutes)."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_OFF,
+            off_timer_minutes=660,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        off_timer = (data[11] & 0xFF) | ((data[12] & 0x07) << 8)
+        assert off_timer == 660
+        assert bool(data[12] & 0x08) is True
+
+    def test_on_timer_720m(self) -> None:
+        """On timer 12 hours (720 minutes) — maximum value."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_ON,
+            on_timer_minutes=720,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        assert (data[9] >> 4) & 0x03 == TIMER_ON
+        on_timer = ((data[12] >> 4) & 0x0F) | ((data[13] & 0x7F) << 4)
+        on_enable = bool(data[13] & 0x80)
+        assert on_timer == 720
+        assert on_enable is True
+
+    def test_on_timer_510m(self) -> None:
+        """On timer 8h30m (510 minutes)."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_ON,
+            on_timer_minutes=510,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        on_timer = ((data[12] >> 4) & 0x0F) | ((data[13] & 0x7F) << 4)
+        assert on_timer == 510
+        assert bool(data[13] & 0x80) is True
+
+    def test_sleep_timer_180m(self) -> None:
+        """Sleep timer 3 hours (180 minutes)."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_SLEEP,
+            off_timer_minutes=180,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        assert (data[9] >> 4) & 0x03 == TIMER_SLEEP
+        off_timer = (data[11] & 0xFF) | ((data[12] & 0x07) << 8)
+        assert off_timer == 180
+        assert bool(data[12] & 0x08) is True
+
+    def test_timer_clamped_to_max(self) -> None:
+        """Timer values above TIMER_MAX are clamped."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_ON,
+            on_timer_minutes=9999,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        on_timer = ((data[12] >> 4) & 0x0F) | ((data[13] & 0x7F) << 4)
+        assert on_timer == TIMER_MAX
+
+    def test_off_timer_enable_not_set_when_zero(self) -> None:
+        """OffTimerEnable is not set when off_timer_minutes is 0."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_OFF,
+            off_timer_minutes=0,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        assert bool(data[12] & 0x08) is False
+
+    def test_on_timer_enable_not_set_when_zero(self) -> None:
+        """OnTimerEnable is not set when on_timer_minutes is 0."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_ON,
+            on_timer_minutes=0,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        assert bool(data[13] & 0x80) is False
+
+    def test_timer_checksum_valid(self) -> None:
+        """Checksum is valid when timer is set."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_OFF,
+            off_timer_minutes=60,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        assert (sum(data[7:16]) & 0xFF) == 0
+
+
+# =============================================================================
+# Timer decoding
+# =============================================================================
+
+
+class TestTimerDecoding:
+    """Tests for timer decoding from raw bytes."""
+
+    def test_decode_no_timer(self) -> None:
+        """Default state has timer_type TIMER_STOP and zero minutes."""
+        ac = FujitsuAC()
+        data = ac.encode_on()
+        decoded = FujitsuAC.from_bytes(data)
+        assert decoded.state.timer_type == TIMER_STOP
+        assert decoded.state.off_timer_minutes == 0
+        assert decoded.state.on_timer_minutes == 0
+
+    def test_decode_off_timer(self) -> None:
+        """Decode an off timer message."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_OFF,
+            off_timer_minutes=120,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        decoded = FujitsuAC.from_bytes(data)
+        assert decoded.state.timer_type == TIMER_OFF
+        assert decoded.state.off_timer_minutes == 120
+        assert decoded.state.on_timer_minutes == 0
+
+    def test_decode_on_timer(self) -> None:
+        """Decode an on timer message."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_ON,
+            on_timer_minutes=450,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        decoded = FujitsuAC.from_bytes(data)
+        assert decoded.state.timer_type == TIMER_ON
+        assert decoded.state.on_timer_minutes == 450
+        assert decoded.state.off_timer_minutes == 0
+
+    def test_decode_sleep_timer(self) -> None:
+        """Decode a sleep timer message."""
+        state = FujitsuACState(
+            power=True,
+            timer_type=TIMER_SLEEP,
+            off_timer_minutes=90,
+        )
+        ac = FujitsuAC(state)
+        data = ac.encode_on()
+        decoded = FujitsuAC.from_bytes(data)
+        assert decoded.state.timer_type == TIMER_SLEEP
+        assert decoded.state.off_timer_minutes == 90
+
+
+# =============================================================================
+# Timer round-trip
+# =============================================================================
+
+
+class TestTimerRoundTrip:
+    """Tests for encode → decode → re-encode round-trip with timers."""
+
+    @pytest.mark.parametrize(
+        "state",
+        [
+            FujitsuACState(
+                power=True, timer_type=TIMER_OFF, off_timer_minutes=30,
+            ),
+            FujitsuACState(
+                power=True, timer_type=TIMER_OFF, off_timer_minutes=660,
+            ),
+            FujitsuACState(
+                power=True, timer_type=TIMER_ON, on_timer_minutes=720,
+            ),
+            FujitsuACState(
+                power=True, timer_type=TIMER_ON, on_timer_minutes=510,
+            ),
+            FujitsuACState(
+                power=True, timer_type=TIMER_SLEEP, off_timer_minutes=180,
+            ),
+            FujitsuACState(
+                power=True, timer_type=TIMER_STOP,
+            ),
+        ],
+        ids=[
+            "off-30m",
+            "off-11h",
+            "on-12h",
+            "on-8h30m",
+            "sleep-3h",
+            "no-timer",
+        ],
+    )
+    def test_timer_round_trip(self, state: FujitsuACState) -> None:
+        """Encode, decode, and re-encode — bytes must match."""
+        ac = FujitsuAC(state)
+        original = ac.encode_on()
+        decoded = FujitsuAC.from_bytes(original)
+        re_encoded = decoded.encode()
+        assert re_encoded == original
+
+
+# =============================================================================
+# Timer in describe output
+# =============================================================================
+
+
+class TestTimerDescribe:
+    """Tests for timer information in describe output."""
+
+    def test_describe_includes_off_timer(self) -> None:
+        """describe() mentions the off timer when active."""
+        ac = FujitsuAC(FujitsuACState(
+            power=True, timer_type=TIMER_OFF, off_timer_minutes=90,
+        ))
+        text = ac.describe()
+        assert "Off Timer" in text
+        assert "01:30" in text
+
+    def test_describe_includes_on_timer(self) -> None:
+        """describe() mentions the on timer when active."""
+        ac = FujitsuAC(FujitsuACState(
+            power=True, timer_type=TIMER_ON, on_timer_minutes=510,
+        ))
+        text = ac.describe()
+        assert "On Timer" in text
+        assert "08:30" in text
+
+    def test_describe_bytes_shows_timer_values(self) -> None:
+        """describe_bytes() shows decoded timer values."""
+        ac = FujitsuAC(FujitsuACState(
+            power=True, timer_type=TIMER_OFF, off_timer_minutes=60,
+        ))
+        data = ac.encode_on()
+        text = FujitsuAC.describe_bytes(data)
+        assert "OffTimer" in text
+        assert "60 min" in text

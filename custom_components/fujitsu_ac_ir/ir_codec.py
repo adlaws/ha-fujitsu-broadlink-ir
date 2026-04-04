@@ -32,6 +32,11 @@ from .const import (
     STATE_LENGTH,
     STATE_LENGTH_SHORT,
     SWING_OFF,
+    TIMER_MAX,
+    TIMER_OFF,
+    TIMER_ON,
+    TIMER_SLEEP,
+    TIMER_STOP,
     ZERO_SPACE,
 )
 
@@ -48,6 +53,11 @@ class FujitsuACState:
     :param outside_quiet: Enable outside-unit quiet mode.
     :param device_id: Remote device ID (0–3).
     :param protocol: Protocol version byte.
+    :param timer_type: Timer mode (``TIMER_STOP``, ``TIMER_SLEEP``,
+        ``TIMER_OFF``, ``TIMER_ON``).  Only one timer can be active.
+    :param off_timer_minutes: Duration in minutes for the off or sleep timer
+        (0–720).  Also used when ``timer_type`` is ``TIMER_SLEEP``.
+    :param on_timer_minutes: Duration in minutes for the on timer (0–720).
     """
 
     power: bool = False
@@ -58,6 +68,9 @@ class FujitsuACState:
     outside_quiet: bool = False
     device_id: int = 0
     protocol: int = PROTOCOL_ARREW4E
+    timer_type: int = TIMER_STOP
+    off_timer_minutes: int = 0
+    on_timer_minutes: int = 0
 
 
 class FujitsuACCodec:
@@ -109,6 +122,125 @@ class FujitsuACCodec:
         if not state.power:
             return cls.build_power_off()
         return cls.build_power_on(state)
+
+    @classmethod
+    def build_off_timer(cls, state: FujitsuACState, minutes: int) -> str:
+        """Build a Broadlink code to turn the AC off after *minutes*.
+
+        The AC must currently be on.  The full current state (mode, temp,
+        fan, swing) is included in the command so the AC continues
+        running with those settings until the timer expires.
+
+        :param state: Current AC state (should have ``power=True``).
+        :param minutes: Duration in minutes (1–720).
+        :return: Base64-encoded Broadlink IR code.
+        :raises ValueError: If *minutes* is out of range.
+        """
+        if not 1 <= minutes <= TIMER_MAX:
+            raise ValueError(
+                f"Off timer minutes must be 1–{TIMER_MAX}, got {minutes}"
+            )
+        timer_state = FujitsuACState(
+            power=True,
+            mode=state.mode,
+            temperature=state.temperature,
+            fan=state.fan,
+            swing=state.swing,
+            outside_quiet=state.outside_quiet,
+            device_id=state.device_id,
+            protocol=state.protocol,
+            timer_type=TIMER_OFF,
+            off_timer_minutes=minutes,
+        )
+        ir_bytes = cls._encode_long(timer_state, power_on=False)
+        return cls._bytes_to_broadlink(ir_bytes)
+
+    @classmethod
+    def build_on_timer(cls, state: FujitsuACState, minutes: int) -> str:
+        """Build a Broadlink code to turn the AC on after *minutes*.
+
+        The desired state (mode, temp, fan, swing) to activate when the
+        timer fires is taken from *state*.
+
+        :param state: Desired AC state for when the timer fires.
+        :param minutes: Duration in minutes (1–720).
+        :return: Base64-encoded Broadlink IR code.
+        :raises ValueError: If *minutes* is out of range.
+        """
+        if not 1 <= minutes <= TIMER_MAX:
+            raise ValueError(
+                f"On timer minutes must be 1–{TIMER_MAX}, got {minutes}"
+            )
+        timer_state = FujitsuACState(
+            power=True,
+            mode=state.mode,
+            temperature=state.temperature,
+            fan=state.fan,
+            swing=state.swing,
+            outside_quiet=state.outside_quiet,
+            device_id=state.device_id,
+            protocol=state.protocol,
+            timer_type=TIMER_ON,
+            on_timer_minutes=minutes,
+        )
+        ir_bytes = cls._encode_long(timer_state, power_on=True)
+        return cls._bytes_to_broadlink(ir_bytes)
+
+    @classmethod
+    def build_sleep_timer(cls, state: FujitsuACState, minutes: int) -> str:
+        """Build a Broadlink code to activate the sleep timer.
+
+        The sleep timer turns the AC off after *minutes* with gradual
+        comfort adjustments (the AC unit manages the wind-down).
+
+        :param state: Current AC state (should have ``power=True``).
+        :param minutes: Duration in minutes (1–720).
+        :return: Base64-encoded Broadlink IR code.
+        :raises ValueError: If *minutes* is out of range.
+        """
+        if not 1 <= minutes <= TIMER_MAX:
+            raise ValueError(
+                f"Sleep timer minutes must be 1–{TIMER_MAX}, got {minutes}"
+            )
+        timer_state = FujitsuACState(
+            power=True,
+            mode=state.mode,
+            temperature=state.temperature,
+            fan=state.fan,
+            swing=state.swing,
+            outside_quiet=state.outside_quiet,
+            device_id=state.device_id,
+            protocol=state.protocol,
+            timer_type=TIMER_SLEEP,
+            off_timer_minutes=minutes,
+        )
+        ir_bytes = cls._encode_long(timer_state, power_on=False)
+        return cls._bytes_to_broadlink(ir_bytes)
+
+    @classmethod
+    def build_cancel_timer(cls, state: FujitsuACState) -> str:
+        """Build a Broadlink code to cancel any active timer.
+
+        Sends the current state with timer_type set to TIMER_STOP.
+
+        :param state: Current AC state.
+        :return: Base64-encoded Broadlink IR code.
+        """
+        timer_state = FujitsuACState(
+            power=state.power,
+            mode=state.mode,
+            temperature=state.temperature,
+            fan=state.fan,
+            swing=state.swing,
+            outside_quiet=state.outside_quiet,
+            device_id=state.device_id,
+            protocol=state.protocol,
+            timer_type=TIMER_STOP,
+        )
+        if not timer_state.power:
+            return cls.build_power_off()
+        ir_bytes = cls._encode_long(timer_state, power_on=False)
+        return cls._bytes_to_broadlink(ir_bytes)
 
     # =========================================================================
     # Protocol Encoding
@@ -169,14 +301,29 @@ class FujitsuACCodec:
 
         # Byte 9: Mode (bits 2:0)
         data[9] = state.mode & 0x07
+        data[9] |= (state.timer_type & 0x03) << 4
 
         # Byte 10: Fan (bits 2:0), Swing (bits 5:4)
         data[10] = (state.fan & 0x07) | ((state.swing & 0x03) << 4)
 
-        # Bytes 11-13: Timers (disabled)
-        data[11] = 0x00
-        data[12] = 0x00
-        data[13] = 0x00
+        # Bytes 11-13: Timers
+        #   OffTimer (11 bits) | OffTimerEnable (1 bit) |
+        #   OnTimer (11 bits)  | OnTimerEnable (1 bit)
+        off_val = min(TIMER_MAX, max(0, state.off_timer_minutes))
+        on_val = min(TIMER_MAX, max(0, state.on_timer_minutes))
+        off_enable = state.timer_type in (TIMER_OFF, TIMER_SLEEP) and off_val > 0
+        on_enable = state.timer_type == TIMER_ON and on_val > 0
+
+        data[11] = off_val & 0xFF
+        data[12] = (
+            ((off_val >> 8) & 0x07)
+            | ((1 << 3) if off_enable else 0)
+            | ((on_val & 0x0F) << 4)
+        )
+        data[13] = (
+            ((on_val >> 4) & 0x7F)
+            | ((1 << 7) if on_enable else 0)
+        )
 
         # Byte 14: Unknown=1 (bit 5), model-specific bit 0
         data[14] = (1 << 5)  # Unknown bit always set
@@ -235,6 +382,15 @@ class FujitsuACCodec:
             state.fan = data[10] & 0x07
             state.swing = (data[10] >> 4) & 0x03
             state.outside_quiet = bool(data[14] & 0x80)
+
+            # Timer
+            state.timer_type = (data[9] >> 4) & 0x03
+            off_timer = (data[11] & 0xFF) | ((data[12] & 0x07) << 8)
+            on_timer = ((data[12] >> 4) & 0x0F) | ((data[13] & 0x7F) << 4)
+            if state.timer_type in (TIMER_OFF, TIMER_SLEEP):
+                state.off_timer_minutes = off_timer
+            elif state.timer_type == TIMER_ON:
+                state.on_timer_minutes = on_timer
         elif cmd_byte == CMD_TURN_OFF:
             state.power = False
 
