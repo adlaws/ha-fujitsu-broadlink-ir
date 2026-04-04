@@ -1,8 +1,10 @@
 """Fujitsu AC IR Protocol Encoder.
 
-Encodes AC state into raw IR protocol bytes and converts to
-Broadlink IR blaster format. Supports the AR-RWE3E / ARREW4E
-protocol (byte 7 = 0x31).
+Encodes AC state into raw IR protocol bytes and converts to raw IR
+timing arrays.  Transport-specific encoding (Broadlink base64, ESPHome
+raw, etc.) is handled by :mod:`ir_transport`.
+
+Supports the AR-RWE3E / ARREW4E protocol (byte 7 = 0x31).
 """
 
 from __future__ import annotations
@@ -74,71 +76,74 @@ class FujitsuACState:
 
 
 class FujitsuACCodec:
-    """Encode/decode Fujitsu AC IR commands for Broadlink integration."""
+    """Encode/decode Fujitsu AC IR commands.
+
+    Protocol layer only — converts between :class:`FujitsuACState` and
+    raw IR protocol bytes or timing arrays.  Transport-specific
+    formatting (Broadlink base64, ESPHome raw, etc.) is handled by
+    :mod:`ir_transport`.
+    """
 
     # =========================================================================
-    # High-level: Build Broadlink base64 codes
+    # High-level: Build protocol bytes
     # =========================================================================
 
     @classmethod
-    def build_power_on(cls, state: FujitsuACState) -> str:
-        """Build a Broadlink base64 code to turn on with the given state.
+    def build_power_on(cls, state: FujitsuACState) -> bytes:
+        """Build protocol bytes to turn on with the given state.
 
         :param state: Desired AC state.
-        :return: Base64-encoded Broadlink IR code.
+        :return: Encoded protocol bytes (16 bytes).
         """
-        ir_bytes = cls._encode_long(state, power_on=True)
-        return cls._bytes_to_broadlink(ir_bytes)
+        return cls._encode_long(state, power_on=True)
 
     @classmethod
-    def build_state_change(cls, state: FujitsuACState) -> str:
-        """Build a Broadlink base64 code to change settings while on.
+    def build_state_change(cls, state: FujitsuACState) -> bytes:
+        """Build protocol bytes to change settings while on.
 
         :param state: Desired AC state.
-        :return: Base64-encoded Broadlink IR code.
+        :return: Encoded protocol bytes (16 bytes).
         """
-        ir_bytes = cls._encode_long(state, power_on=False)
-        return cls._bytes_to_broadlink(ir_bytes)
+        return cls._encode_long(state, power_on=False)
 
     @classmethod
-    def build_power_off(cls) -> str:
-        """Build a Broadlink base64 code to turn the unit off.
+    def build_power_off(cls) -> bytes:
+        """Build protocol bytes to turn the unit off.
 
-        :return: Base64-encoded Broadlink IR code.
+        :return: Encoded protocol bytes (7 bytes).
         """
-        ir_bytes = cls._encode_short(CMD_TURN_OFF)
-        return cls._bytes_to_broadlink(ir_bytes)
+        return cls._encode_short(CMD_TURN_OFF)
 
     @classmethod
-    def build_command(cls, state: FujitsuACState) -> str:
-        """Build the appropriate Broadlink command for the current state.
+    def build_command(cls, state: FujitsuACState) -> bytes:
+        """Build the appropriate protocol bytes for the current state.
 
-        Send a power-off short code when *power* is ``False``, or a full
-        state message when *power* is ``True``.
+        Returns a power-off short message when *power* is ``False``, or
+        a full state message when *power* is ``True``.
 
         :param state: Desired AC state.
-        :return: Base64-encoded Broadlink IR code.
+        :return: Encoded protocol bytes.
         """
         if not state.power:
             return cls.build_power_off()
         return cls.build_power_on(state)
 
     @classmethod
-    def build_off_timer(cls, state: FujitsuACState, minutes: int) -> str:
-        """Build a Broadlink code to turn the AC off after *minutes*.
+    def build_off_timer(cls, state: FujitsuACState, minutes: int) -> bytes:
+        """Build protocol bytes to turn the AC off after *minutes*.
 
         The AC must currently be on.  The full current state (mode, temp,
         fan, swing) is included in the command so the AC continues
         running with those settings until the timer expires.
 
         :param state: Current AC state (should have ``power=True``).
-        :param minutes: Duration in minutes (1–720).
-        :return: Base64-encoded Broadlink IR code.
+        :param minutes: Duration in minutes (1\u2013720).
+        :return: Encoded protocol bytes.
         :raises ValueError: If *minutes* is out of range.
         """
         if not 1 <= minutes <= TIMER_MAX:
             raise ValueError(
-                f"Off timer minutes must be 1–{TIMER_MAX}, got {minutes}"
+                f"Off timer minutes must be 1\u2013{TIMER_MAX}, got {minutes}"
             )
         timer_state = FujitsuACState(
             power=True,
@@ -152,24 +157,23 @@ class FujitsuACCodec:
             timer_type=TIMER_OFF,
             off_timer_minutes=minutes,
         )
-        ir_bytes = cls._encode_long(timer_state, power_on=False)
-        return cls._bytes_to_broadlink(ir_bytes)
+        return cls._encode_long(timer_state, power_on=False)
 
     @classmethod
-    def build_on_timer(cls, state: FujitsuACState, minutes: int) -> str:
-        """Build a Broadlink code to turn the AC on after *minutes*.
+    def build_on_timer(cls, state: FujitsuACState, minutes: int) -> bytes:
+        """Build protocol bytes to turn the AC on after *minutes*.
 
         The desired state (mode, temp, fan, swing) to activate when the
         timer fires is taken from *state*.
 
         :param state: Desired AC state for when the timer fires.
-        :param minutes: Duration in minutes (1–720).
-        :return: Base64-encoded Broadlink IR code.
+        :param minutes: Duration in minutes (1\u2013720).
+        :return: Encoded protocol bytes.
         :raises ValueError: If *minutes* is out of range.
         """
         if not 1 <= minutes <= TIMER_MAX:
             raise ValueError(
-                f"On timer minutes must be 1–{TIMER_MAX}, got {minutes}"
+                f"On timer minutes must be 1\u2013{TIMER_MAX}, got {minutes}"
             )
         timer_state = FujitsuACState(
             power=True,
@@ -183,24 +187,23 @@ class FujitsuACCodec:
             timer_type=TIMER_ON,
             on_timer_minutes=minutes,
         )
-        ir_bytes = cls._encode_long(timer_state, power_on=True)
-        return cls._bytes_to_broadlink(ir_bytes)
+        return cls._encode_long(timer_state, power_on=True)
 
     @classmethod
-    def build_sleep_timer(cls, state: FujitsuACState, minutes: int) -> str:
-        """Build a Broadlink code to activate the sleep timer.
+    def build_sleep_timer(cls, state: FujitsuACState, minutes: int) -> bytes:
+        """Build protocol bytes to activate the sleep timer.
 
         The sleep timer turns the AC off after *minutes* with gradual
         comfort adjustments (the AC unit manages the wind-down).
 
         :param state: Current AC state (should have ``power=True``).
-        :param minutes: Duration in minutes (1–720).
-        :return: Base64-encoded Broadlink IR code.
+        :param minutes: Duration in minutes (1\u2013720).
+        :return: Encoded protocol bytes.
         :raises ValueError: If *minutes* is out of range.
         """
         if not 1 <= minutes <= TIMER_MAX:
             raise ValueError(
-                f"Sleep timer minutes must be 1–{TIMER_MAX}, got {minutes}"
+                f"Sleep timer minutes must be 1\u2013{TIMER_MAX}, got {minutes}"
             )
         timer_state = FujitsuACState(
             power=True,
@@ -214,17 +217,16 @@ class FujitsuACCodec:
             timer_type=TIMER_SLEEP,
             off_timer_minutes=minutes,
         )
-        ir_bytes = cls._encode_long(timer_state, power_on=False)
-        return cls._bytes_to_broadlink(ir_bytes)
+        return cls._encode_long(timer_state, power_on=False)
 
     @classmethod
-    def build_cancel_timer(cls, state: FujitsuACState) -> str:
-        """Build a Broadlink code to cancel any active timer.
+    def build_cancel_timer(cls, state: FujitsuACState) -> bytes:
+        """Build protocol bytes to cancel any active timer.
 
         Sends the current state with timer_type set to TIMER_STOP.
 
         :param state: Current AC state.
-        :return: Base64-encoded Broadlink IR code.
+        :return: Encoded protocol bytes.
         """
         timer_state = FujitsuACState(
             power=state.power,
@@ -239,8 +241,46 @@ class FujitsuACCodec:
         )
         if not timer_state.power:
             return cls.build_power_off()
-        ir_bytes = cls._encode_long(timer_state, power_on=False)
-        return cls._bytes_to_broadlink(ir_bytes)
+        return cls._encode_long(timer_state, power_on=False)
+
+    # =========================================================================
+    # Timing conversion
+    # =========================================================================
+
+    @classmethod
+    def build_command_timings(cls, state: FujitsuACState) -> list[int]:
+        """Build raw IR timings for the current state.
+
+        Convenience method combining :meth:`build_command` and
+        :meth:`bytes_to_timings`.
+
+        :param state: Desired AC state.
+        :return: Alternating mark/space durations in microseconds.
+        """
+        return cls.bytes_to_timings(cls.build_command(state))
+
+    @staticmethod
+    def bytes_to_timings(data: bytes) -> list[int]:
+        """Encode protocol bytes into raw IR timing values.
+
+        The output is an alternating sequence of mark/space durations
+        in microseconds, suitable for any IR blaster that accepts raw
+        timing arrays.
+
+        :param data: Fujitsu AC protocol bytes.
+        :return: Alternating mark/space durations in microseconds.
+        """
+        timings = [HEADER_MARK, HEADER_SPACE]
+
+        for byte_val in data:
+            for bit_idx in range(8):
+                bit = (byte_val >> bit_idx) & 1
+                timings.append(BIT_MARK)
+                timings.append(ONE_SPACE if bit else ZERO_SPACE)
+
+        timings.append(BIT_MARK)
+        timings.append(MIN_GAP)
+        return timings
 
     # =========================================================================
     # Protocol Encoding
@@ -397,37 +437,22 @@ class FujitsuACCodec:
         return state
 
     # =========================================================================
-    # Broadlink IR Format Conversion
+    # Broadlink IR Format Conversion (backward compatibility)
     # =========================================================================
 
     @classmethod
-    def _bytes_to_broadlink(cls, data: bytes) -> str:
+    def bytes_to_broadlink(cls, data: bytes) -> str:
         """Convert protocol bytes to Broadlink base64 via IR timings.
+
+        Convenience method for callers that still need the Broadlink
+        format directly.  New code should use :meth:`bytes_to_timings`
+        with an appropriate :class:`~.ir_transport.IRTransport`.
 
         :param data: Fujitsu AC protocol bytes.
         :return: Base64-encoded Broadlink IR code.
         """
-        timings = cls._bytes_to_timings(data)
+        timings = cls.bytes_to_timings(data)
         return cls._timings_to_broadlink(timings)
-
-    @staticmethod
-    def _bytes_to_timings(data: bytes) -> list[int]:
-        """Encode protocol bytes into raw IR timing values.
-
-        :param data: Fujitsu AC protocol bytes.
-        :return: Alternating mark/space durations in microseconds.
-        """
-        timings = [HEADER_MARK, HEADER_SPACE]
-
-        for byte_val in data:
-            for bit_idx in range(8):
-                bit = (byte_val >> bit_idx) & 1
-                timings.append(BIT_MARK)
-                timings.append(ONE_SPACE if bit else ZERO_SPACE)
-
-        timings.append(BIT_MARK)
-        timings.append(MIN_GAP)
-        return timings
 
     @staticmethod
     def _timings_to_broadlink(timings_us: list[int], repeat: int = 0) -> str:

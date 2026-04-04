@@ -45,7 +45,7 @@ from homeassistant.helpers.entity_platform import (
 )
 from homeassistant.util import dt as dt_util
 
-from . import FujitsuACIRData, async_send_ir_code, async_send_ir_command
+from . import FujitsuACIRData, async_send_ir_bytes, async_send_ir_command
 from .const import (
     CONF_NAME,
     DEFAULT_NAME,
@@ -378,9 +378,9 @@ class FujitsuACClimate(ClimateEntity):
         """
         mins = self._resolve_minutes(minutes, time)
         _LOGGER.debug("Setting off timer: %d minutes", mins)
-        code = FujitsuACCodec.build_off_timer(self._data.ir_state, mins)
-        await async_send_ir_code(
-            self.hass, self._data.broadlink_entity, code
+        ir_bytes = FujitsuACCodec.build_off_timer(self._data.ir_state, mins)
+        await async_send_ir_bytes(
+            self.hass, self._data.transport, ir_bytes
         )
 
     async def async_set_on_timer(
@@ -421,9 +421,9 @@ class FujitsuACClimate(ClimateEntity):
             ir_state.swing = SWING_MODE_TO_IR.get(swing_mode, ir_state.swing)
 
         _LOGGER.debug("Setting on timer: %d minutes", mins)
-        code = FujitsuACCodec.build_on_timer(ir_state, mins)
-        await async_send_ir_code(
-            self.hass, self._data.broadlink_entity, code
+        ir_bytes = FujitsuACCodec.build_on_timer(ir_state, mins)
+        await async_send_ir_bytes(
+            self.hass, self._data.transport, ir_bytes
         )
 
     async def async_set_sleep_timer(
@@ -438,15 +438,15 @@ class FujitsuACClimate(ClimateEntity):
         """
         mins = self._resolve_minutes(minutes, time)
         _LOGGER.debug("Setting sleep timer: %d minutes", mins)
-        code = FujitsuACCodec.build_sleep_timer(self._data.ir_state, mins)
-        await async_send_ir_code(
-            self.hass, self._data.broadlink_entity, code
+        ir_bytes = FujitsuACCodec.build_sleep_timer(self._data.ir_state, mins)
+        await async_send_ir_bytes(
+            self.hass, self._data.transport, ir_bytes
         )
 
     async def async_cancel_timer(self) -> None:
         """Cancel any active timer."""
         _LOGGER.debug("Cancelling timer")
-        code = FujitsuACCodec.build_cancel_timer(self._data.ir_state)
-        await async_send_ir_code(
-            self.hass, self._data.broadlink_entity, code
+        ir_bytes = FujitsuACCodec.build_cancel_timer(self._data.ir_state)
+        await async_send_ir_bytes(
+            self.hass, self._data.transport, ir_bytes
         )
