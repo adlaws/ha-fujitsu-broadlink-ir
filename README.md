@@ -1,258 +1,279 @@
-# Fujitsu AC IR Control
+# Broadlink IR Control of Fujitsu AC — Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Control a Fujitsu air conditioner via a Broadlink IR blaster by assembling
-protocol-correct IR commands on the fly — no pre-recorded codes needed.
+A Home Assistant custom integration that controls a Fujitsu air conditioner
+through a Broadlink IR blaster. Commands are built from the decoded Fujitsu
+IR protocol, so no pre-recorded codes are required.
 
-## Overview
+## Prerequisites
 
-Fujitsu AC remotes encode the **entire AC state** in every IR transmission —
-not just the button that was pressed. This project reverse-engineers the
-Fujitsu IR protocol (AR-RWE3E / ARREW4E family, protocol byte `0x31`)
-and provides:
+* A Broadlink IR blaster (RM4 Mini, RM4 Pro, RM Pro+, or similar) already
+  configured in Home Assistant via the
+  [Broadlink integration](https://www.home-assistant.io/integrations/broadlink/)
+* A Fujitsu air conditioner with an AR-RWE3E remote (or compatible
+  ARREW4E-family model)
+* Home Assistant 2024.1 or later
 
-* A standalone Python library for encoding and decoding Fujitsu IR commands
-* A developer tool for analysing recorded Broadlink IR codes
-* A Home Assistant custom integration (`climate` platform) that drives the
-  AC through a Broadlink IR blaster
+## Installation
 
-See the [Integration Documentation](docs/integration.md) for detailed
-configuration and usage within Home Assistant.
-
-## Installation via HACS
+### Via HACS (recommended)
 
 1. Open HACS in your Home Assistant instance.
 2. Select **Integrations**.
 3. Click the three-dot menu (top right) and choose **Custom repositories**.
-4. Enter `https://github.com/adlaws/ha-fujitsu` as the repository URL and
+4. Enter `https://github.com/adlaws/ha-fujitsu-broadlink-ir` as the repository URL and
    select **Integration** as the category.
 5. Click **Add**, then find **Fujitsu AC IR (Broadlink)** in the list and
    click **Download**.
 6. Restart Home Assistant.
-7. Go to **Settings → Devices & Services → Add Integration** and search
-   for **Fujitsu AC IR**.
 
-## Repository Layout
+### Manual Installation
 
-```text
-ha-fujitsu/
-├── custom_components/fujitsu_ac_ir/   Home Assistant integration
-│   ├── __init__.py
-│   ├── brand/                         Brand assets (icon, logo)
-│   ├── climate.py                     Climate entity
-│   ├── config_flow.py                 UI configuration flow
-│   ├── const.py                       Integration constants
-│   ├── ir_codec.py                    IR encode / decode logic
-│   ├── manifest.json
-│   ├── strings.json
-│   ├── switch.py                      Outside-unit quiet switch
-│   └── translations/en.json
-├── docs/
-│   └── integration.md                 Integration-specific documentation
-├── resources/
-│   └── fujitsu-ir-codes-broadlink.json  Recorded codes for analysis
-├── src/
-│   ├── fujitsu_ir/                    Standalone protocol library
-│   │   ├── __init__.py
-│   │   ├── broadlink.py               Broadlink ↔ raw timing conversion
-│   │   ├── const.py                   Protocol constants
-│   │   └── protocol.py                Encode / decode Fujitsu messages
-│   └── tools/
-│       ├── __init__.py
-│       └── analyze_codes.py           CLI analysis tool
-├── hacs.json                          HACS metadata
-├── LICENSE                            MIT license
-├── pytest.ini                         Test configuration
-├── tests/                             Unit tests
-│   ├── test_protocol.py               Protocol encode / decode
-│   ├── test_broadlink.py              Broadlink format conversion
-│   ├── test_recorded_codes.py         Recorded IR code validation
-│   └── test_ir_codec.py               HA integration codec
-└── README.md                          ← you are here
+1. Copy the `custom_components/fujitsu_ac_ir/` directory into your Home
+   Assistant `config/custom_components/` directory.
+2. Restart Home Assistant.
+
+### Configuration
+
+1. Navigate to **Settings → Devices & Services → Add Integration**.
+2. Search for **Fujitsu AC IR** and select it.
+3. Enter a name for the air conditioner (e.g. "Lounge AC").
+4. Select the Broadlink remote entity that will transmit the IR commands.
+
+After completing the flow a `climate` entity and an **Outside Quiet**
+`switch` entity appear under the name you chose.
+
+## Supported Features
+
+| Feature | Values |
+|---------|--------|
+| HVAC modes | Off, Auto, Cool, Heat, Dry, Fan Only |
+| Temperature range | 16 °C – 30 °C in 0.5 °C steps |
+| Fan speeds | Auto, High, Medium, Low, Quiet |
+| Swing modes\* | Off, Vertical, Horizontal, Both |
+| Outside-unit quiet | On / Off (separate switch entity) |
+
+> *\* Note that not all swing modes are supported on all models*
+
+### HVAC Modes
+
+* **Off** — sends a short 7-byte power-off command
+* **Auto** — the AC selects heating or cooling automatically
+* **Cool** — cooling mode
+* **Heat** — heating mode
+* **Dry** — dehumidification mode
+* **Fan Only** — fan runs without compressor
+
+### Fan Speed
+
+Standard Home Assistant fan speeds (Auto, High, Medium, Low) are mapped
+directly to the Fujitsu protocol values. An additional custom fan mode
+`quiet` is exposed, corresponding to the Fujitsu Quiet setting
+(protocol fan value `0x04`).
+
+### Swing
+
+Swing modes map one-to-one to the protocol:
+
+* `off` — louvres hold position
+* `vertical` — vertical oscillation
+* `horizontal` — horizontal oscillation
+* `both` — simultaneous vertical and horizontal oscillation
+
+**Note that not all models support all swing modes.**
+
+### Outside-Unit Quiet Mode
+
+The outside-unit quiet mode is exposed as a separate `switch` entity
+(e.g. `switch.lounge_ac_outside_quiet`).  When enabled the outdoor
+compressor runs at reduced noise levels.
+
+Toggling the switch while the AC is on sends a full state IR command
+immediately.  Toggling it while the AC is off stores the setting so it
+will be included in the next power-on command.
+
+## How Commands Are Sent
+
+Every state change (mode, temperature, fan, swing) assembles a **complete
+16-byte IR command** encoding the full desired AC state — exactly as the
+physical remote would. The integration then calls the
+`remote.send_command` service on the configured Broadlink entity, passing
+the base64-encoded Broadlink timing data.
+
+This means the AC always receives an unambiguous, self-contained command
+and the integration does not need to track incremental changes.
+
+## Lovelace Dashboard Card
+
+The integration creates a standard `climate` entity, so the built-in
+**Thermostat** card works out of the box with no extra configuration.
+It provides temperature up/down controls, HVAC mode selection, fan speed,
+and swing mode — all wired to the correct IR commands automatically.
+
+### Minimal Thermostat Card
+
+```yaml
+type: thermostat
+entity: climate.lounge_ac
 ```
 
-## Fujitsu IR Protocol
+Replace `climate.lounge_ac` with the entity ID created during setup.
 
-### Message Types
+### Customised Climate Card
 
-The protocol uses two message formats:
+For more control over the layout you can use a `climate-hvac-modes` card
+or override which features are shown:
 
-* **Short (7 bytes)** — simple commands such as power off and swing toggle
-* **Long (16 bytes)** — full state including mode, temperature, fan speed,
-  swing setting, and timers
-
-Every "set state" transmission is a long message that carries the complete
-desired AC configuration. The AC applies the entire state atomically —
-there is no concept of changing a single setting.
-
-### Long Message Byte Map
-
-| Byte | Field | Description |
-|------|-------|-------------|
-| 0–1 | Header | Always `0x14 0x63` |
-| 2 | Device ID | Bits 5:4 hold the device ID (0–3) |
-| 3–4 | Fixed | Always `0x10 0x10` |
-| 5 | Command | `0xFE` = full state |
-| 6 | RestLength | `0x09` (9 bytes follow) |
-| 7 | Protocol | `0x31` for AR-RWE3E / ARREW4E family |
-| 8 | Power and Temperature | Bit 0 = power on/off. Bits 7:2 = encoded temperature |
-| 9 | Mode and Flags | Bits 2:0 = mode. Bit 3 = clean. Bits 5:4 = timer type |
-| 10 | Fan and Swing | Bits 2:0 = fan speed. Bits 5:4 = swing mode |
-| 11–13 | Timers | Off/sleep timer and on timer values (zeros when unused) |
-| 14 | Flags | Bit 5 = always 1. Bit 0 = model flag. Bit 7 = outside quiet |
-| 15 | Checksum | Sum of bytes 7–15 ≡ 0 (mod 256) |
-
-### Short Message Byte Map
-
-| Byte | Field | Description |
-|------|-------|-------------|
-| 0–1 | Header | Always `0x14 0x63` |
-| 2 | Device ID | Bits 5:4 hold the device ID (0–3) |
-| 3–4 | Fixed | Always `0x10 0x10` |
-| 5 | Command | e.g. `0x02` = power off |
-| 6 | Inverse | Bitwise inverse of byte 5 |
-
-### Temperature Encoding
-
-The raw temperature field is 6 bits wide. The formula depends on the
-protocol version:
-
-* Protocol `0x31` (AR-RWE3E / ARREW4E):
-
-$$
-\text{raw} = (°C - 8) \times 2
-$$
-
-* Protocol `0x30` (standard ARRAH2E, ARDB1):
-
-$$
-\text{raw} = (°C - 16) \times 4
-$$
-
-### Mode Values
-
-| Mode | Value |
-|------|-------|
-| Auto | `0x00` |
-| Cool | `0x01` |
-| Dry | `0x02` |
-| Fan | `0x03` |
-| Heat | `0x04` |
-
-### Fan Speed Values
-
-| Fan Speed | Value |
-|-----------|-------|
-| Auto | `0x00` |
-| High | `0x01` |
-| Medium | `0x02` |
-| Low | `0x03` |
-| Quiet | `0x04` |
-
-### Swing Mode Values
-
-| Swing Mode | Value |
-|------------|-------|
-| Off | `0x00` |
-| Vertical | `0x01` |
-| Horizontal | `0x02` |
-| Both | `0x03` |
-
-## Standalone Library
-
-The `src/fujitsu_ir/` package provides a pure-Python encoder/decoder with
-no external dependencies.
-
-### Encoding an IR Command
-
-```python
-from fujitsu_ir import FujitsuAC, FujitsuACState
-from fujitsu_ir.const import MODE_COOL, FAN_AUTO, SWING_OFF
-
-state = FujitsuACState(
-    power=True,
-    temperature=24.0,
-    mode=MODE_COOL,
-    fan=FAN_AUTO,
-    swing=SWING_OFF,
-)
-ac = FujitsuAC(state)
-raw_bytes = ac.encode()
+```yaml
+type: thermostat
+entity: climate.lounge_ac
+features:
+    - type: climate-hvac-modes
+      hvac_modes:
+          - "off"
+          - auto
+          - cool
+          - heat
+          - dry
+          - fan_only
+    - type: climate-fan-modes
+      fan_modes:
+          - auto
+          - high
+          - medium
+          - low
+          - quiet
+    - type: climate-swing-modes
+      swing_modes:
+          - "off"
+          - vertical
+          - horizontal
+          - both
 ```
 
-### Decoding Raw Bytes
+### What About Custom Button Cards
 
-```python
-from fujitsu_ir import FujitsuAC
+Because this integration implements the full `ClimateEntity` API, you do
+**not** need a grid of custom buttons or an `input_number` helper to
+track temperature. The thermostat card already handles:
 
-ac = FujitsuAC.from_bytes(raw_bytes)
-print(ac.state)
+| Control | How It Appears |
+|---------|----------------|
+| Power on/off | Selecting "Off" HVAC mode sends the 7-byte power-off IR command |
+| Temperature | Built-in up/down arrows adjust in 0.5 °C steps |
+| HVAC mode | Icon row — auto, cool, heat, dry, fan-only |
+| Fan speed | Dropdown — auto, high, medium, low, quiet |
+| Swing | Dropdown — off, vertical, horizontal, both |
+| Outside quiet | Separate switch entity (see below) |
+
+### Outside Quiet Switch
+
+The outside-unit quiet mode is controlled by a separate `switch` entity.
+You can add it to your dashboard alongside the thermostat card:
+
+```yaml
+type: entities
+entities:
+    - entity: switch.lounge_ac_outside_quiet
+      name: Outside Unit Quiet
 ```
 
-### Converting to Broadlink Format
+Or combine both in a vertical stack:
 
-```python
-from fujitsu_ir import BroadlinkIR
-
-b64_code = BroadlinkIR.bytes_to_broadlink(raw_bytes)
-decoded = BroadlinkIR.broadlink_to_bytes(b64_code)
+```yaml
+type: vertical-stack
+cards:
+    - type: thermostat
+      entity: climate.lounge_ac
+    - type: entities
+      entities:
+          - entity: switch.lounge_ac_outside_quiet
+            name: Outside Unit Quiet
 ```
 
-## Analysis Tool
+## Troubleshooting
 
-The analysis tool decodes every recorded Broadlink IR code from
-`resources/fujitsu-ir-codes-broadlink.json` and prints a byte-level
-breakdown:
+### The AC does not respond to commands
 
-```bash
-cd src
-python3 -m tools.analyze_codes
-```
+* Verify the Broadlink remote entity works by testing a simple IR command
+  from the Home Assistant developer tools.
+* Ensure the IR blaster has line-of-sight to the AC's receiver.
+* Check the Home Assistant log for errors from the `fujitsu_ac_ir`
+  component.
 
-The output includes:
+### Temperature is offset by a few degrees
 
-* A summary table listing each named command with its key decoded fields
-* A detailed per-command section showing all 16 bytes and their
-  interpretation
+Make sure your Fujitsu model uses the AR-RWE3E / ARREW4E protocol
+(protocol byte `0x31`). Models that use the older `0x30` protocol have a
+different temperature encoding formula. See the
+[project README](../README.md) for details on adapting to other models.
 
-This is useful for verifying round-trip encoding or adapting the library
-to other Fujitsu remote models.
+### Quiet fan mode does not appear in the UI
 
-## Adapting to Other Fujitsu Models
+The `quiet` fan mode is a custom string that may not render the same way
+as the built-in fan modes in all frontends. It should appear in the fan
+speed dropdown of the standard climate card.
 
-The library handles two protocol versions controlled by
-`FujitsuACState.protocol`:
+## File Reference
 
-* `PROTOCOL_ARREW4E` (`0x31`) — AR-RWE3E, ARREW4E and related models
-* `PROTOCOL_STANDARD` (`0x30`) — ARRAH2E, ARDB1 and most other models
+| File | Purpose |
+|------|---------|
+| `__init__.py` | Integration entry point — shared data store and IR send helper |
+| `climate.py` | `FujitsuACClimate` entity mapping HA climate API to IR commands |
+| `config_flow.py` | UI configuration flow — selects the Broadlink remote entity |
+| `const.py` | Protocol constants and configuration keys |
+| `ir_codec.py` | Self-contained IR encoder/decoder (`FujitsuACCodec`, `FujitsuACState`) |
+| `switch.py` | `FujitsuACOutsideQuietSwitch` entity for outside-unit quiet mode |
+| `manifest.json` | Integration metadata (domain, version, dependencies) |
+| `strings.json` | Default UI strings |
+| `translations/en.json` | English translations for the configuration flow |
 
-The protocol byte determines which temperature formula is used during
-encoding and decoding. All other fields (mode, fan, swing) are identical
-across both versions.
+## Other Notes
 
-To add support for a new model, record a set of IR codes using a Broadlink
-device, decode them with the analysis tool, and compare the byte patterns
-against the existing protocol documentation above.
+### Clock / Time Setting
 
-## References
+The Fujitsu IR protocol does **not** support setting the air conditioner's
+internal clock via infrared. Bytes 11–13 of a 16-byte command frame carry
+*relative* on/off/sleep timer values that the remote embeds at transmission
+time — they are not an absolute clock and there is no separate "set clock"
+command in the protocol.
 
-* [IRremoteESP8266 — Fujitsu AC support](https://github.com/crankyoldgit/IRremoteESP8266/blob/master/src/ir_Fujitsu.cpp)
-* [python-broadlink — Broadlink IR format](https://github.com/mjg59/python-broadlink)
+This was confirmed by examining the
+[IRremoteESP8266](https://github.com/crankyoldgit/IRremoteESP8266) project,
+the most comprehensive open-source IR protocol library available. Its
+`IRFujitsuAC` class implements encode/decode for the full Fujitsu protocol
+family but provides no `setClock` or `setCurrentTime` method. By contrast,
+other manufacturers (Daikin, Mitsubishi, Panasonic, Haier, and others) do
+expose clock-setting commands, which IRremoteESP8266 supports. The absence
+in the Fujitsu implementation is a limitation of the protocol itself, not of
+this integration.
 
-## Running the Tests
+If your unit displays the wrong time, it must be set manually using the
+physical remote control.
 
-The test suite covers the standalone protocol library, the Broadlink
-format converter, round-trip validation against all 45 recorded IR codes,
-and the Home Assistant integration codec.
+### Acknowledgements
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install pytest
-.venv/bin/pytest tests/ -v
-```
+This integration was developed with the help of the following projects:
 
-Tests run without Home Assistant installed — the integration codec tests
-stub the HA package imports so only the pure-Python codec logic is
-exercised.
+* **[IRremoteESP8266](https://github.com/crankyoldgit/IRremoteESP8266)** —
+  An extensive Arduino/ESP8266 library for sending and receiving infrared
+  signals. Its Fujitsu AC protocol implementation
+  ([`ir_Fujitsu.h`](https://github.com/crankyoldgit/IRremoteESP8266/blob/master/src/ir_Fujitsu.h) /
+  [`ir_Fujitsu.cpp`](https://github.com/crankyoldgit/IRremoteESP8266/blob/master/src/ir_Fujitsu.cpp))
+  was invaluable for understanding the byte-level command structure,
+  checksum algorithm, and protocol variants.
+* **[python-broadlink](https://github.com/mjg59/python-broadlink)** —
+  Python library for controlling Broadlink devices, used by the Home
+  Assistant Broadlink integration that this component builds on.
+
+## Removing the Integration
+
+1. Navigate to **Settings → Devices & Services**.
+2. Find the **Fujitsu AC IR** entry and select it.
+3. Click the three-dot menu and choose **Delete**.
+4. If installed via HACS, open HACS, find the integration, and click
+   **Remove**. If installed manually, delete the
+   `custom_components/fujitsu_ac_ir/` directory.
+5. Restart Home Assistant.
