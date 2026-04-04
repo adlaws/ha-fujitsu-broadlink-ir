@@ -16,6 +16,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import FujitsuACIRData, async_send_ir_command
@@ -67,6 +68,13 @@ class FujitsuACOutsideQuietSwitch(SwitchEntity):
         self._data = data
         self._attr_unique_id = f"fujitsu_ac_ir_{entry_id}_outside_quiet"
         self._attr_name = f"{name} Outside Quiet"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name=name,
+            manufacturer="Fujitsu",
+            model="AR-RWE3E / ARREW4E",
+            sw_version="0.1.1",
+        )
 
     @property
     def icon(self) -> str:

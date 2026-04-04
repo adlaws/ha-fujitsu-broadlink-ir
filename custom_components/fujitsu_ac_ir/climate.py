@@ -38,6 +38,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import (
     AddEntitiesCallback,
     async_get_current_platform,
@@ -233,6 +234,13 @@ class FujitsuACClimate(ClimateEntity):
 
         self._attr_unique_id = f"fujitsu_ac_ir_{entry_id}"
         self._attr_name = name
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name=name,
+            manufacturer="Fujitsu",
+            model="AR-RWE3E / ARREW4E",
+            sw_version="0.1.1",
+        )
 
         # Initial HA state
         self._attr_hvac_mode = HVACMode.OFF
