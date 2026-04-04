@@ -330,11 +330,14 @@ speed dropdown of the standard climate card.
 
 ### Clock / Time Setting
 
-The Fujitsu IR protocol does **not** support setting the air conditioner's
-internal clock via infrared. Bytes 11–13 of a 16-byte command frame carry
-*relative* on/off/sleep timer values that the remote embeds at transmission
-time — they are not an absolute clock and there is no separate "set clock"
-command in the protocol.
+The Fujitsu IR protocol does **not** support setting the air-conditioner's
+internal clock via infrared; in fact it seems possible that the unit itself
+does NOT keep track of time in the sense of "It's currently 2:34pm".
+
+Bytes 11–13 of a 16-byte command frame carry *relative* on/off/sleep timer
+values that the remote embeds at transmission time — they are not an absolute
+clock and there is no separate "set clock" command in the protocol.
+
 
 This was confirmed by examining the
 [IRremoteESP8266](https://github.com/crankyoldgit/IRremoteESP8266) project,
@@ -346,8 +349,9 @@ expose clock-setting commands, which IRremoteESP8266 supports. The absence
 in the Fujitsu implementation is a limitation of the protocol itself, not of
 this integration.
 
-If your unit displays the wrong time, it must be set manually using the
-physical remote control.
+Thus it is only necessary that the remote control be set to the correct
+time, and since the "remote control" in this case is Home Assistant (plus this
+integrataion), it always knows the correct time.
 
 ### Acknowledgements
 
