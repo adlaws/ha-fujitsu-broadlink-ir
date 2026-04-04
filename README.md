@@ -7,6 +7,10 @@ A Home Assistant custom integration that controls a Fujitsu air conditioner
 through a Broadlink IR blaster. Commands are built from the decoded Fujitsu
 IR protocol, so no pre-recorded codes are required.
 
+This integration avoids having to purchase and install a
+[wifi module](https://www.fujitsugeneral.com.au/anywair) in the airconditioner
+by leveraging the same IR protocol used by the remote control.
+
 ## Prerequisites
 
 * A Broadlink IR blaster (RM4 Mini, RM4 Pro, RM Pro+, or similar) already
@@ -93,6 +97,24 @@ compressor runs at reduced noise levels.
 Toggling the switch while the AC is on sends a full state IR command
 immediately.  Toggling it while the AC is off stores the setting so it
 will be included in the next power-on command.
+
+## Limitations
+
+Because of the natire of this integration, there is no way to *query* the
+current state of the airconditioner.
+
+This means that, for example, if you use the *remote* to turn on the
+airconditioner, change the temperature or anything else, these changes to the
+airconditioner's operation will known about by the integration.
+
+This doesn't affect the operation of the integration however - you can safely
+use the remote and this integration at the same time.
+
+If you require a deeper level of integration that allows you to be aware of the
+current operational details of the airconditioner, you will need to purchase an
+[appropriate wifi module](https://www.fujitsugeneral.com.au/anywair) for
+your airconditioner and use an alternate integration such as the
+[Fujitsu Airstage Home Assistant component](https://github.com/danielkaldheim/ha_airstage).
 
 ## How Commands Are Sent
 
