@@ -458,6 +458,12 @@ class FujitsuACCodec:
     def _timings_to_broadlink(timings_us: list[int], repeat: int = 0) -> str:
         """Encode raw timing values into Broadlink base64 format.
 
+        .. note::
+
+           This duplicates :meth:`ir_transport.BroadlinkTransport.timings_to_broadlink`
+           to avoid a protocol-layer → transport-layer import dependency.
+           Kept for backward-compatibility callers of :meth:`bytes_to_broadlink`.
+
         :param timings_us: Alternating mark/space durations in microseconds.
         :param repeat: Number of times to repeat the signal.
         :return: Base64-encoded Broadlink IR code.

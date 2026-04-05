@@ -1,14 +1,22 @@
 # Fujitsu AC IR — Home Assistant Integration
 
 A Home Assistant custom integration that controls a Fujitsu air conditioner
-through a Broadlink IR blaster. Commands are built from the decoded Fujitsu
+through an IR blaster. Commands are built from the decoded Fujitsu
 IR protocol, so no pre-recorded codes are required.
+
+## Supported IR Blasters
+
+| Backend | Status | Device Examples |
+|---------|--------|-----------------|
+| **Broadlink** | Stable | RM4 Mini, RM4 Pro, RM Pro+ |
+| **ESPHome** | Stable | Any ESP32/ESP8266 with `remote_transmitter` |
+| **SwitchBot** | Experimental | SwitchBot Hub Mini, Hub 2 |
+| **Aqara** | Experimental | Aqara M2 Hub, M1S |
 
 ## Prerequisites
 
-* A Broadlink IR blaster (RM4 Mini, RM4 Pro, RM Pro+, or similar) already
-  configured in Home Assistant via the
-  [Broadlink integration](https://www.home-assistant.io/integrations/broadlink/)
+* **One** of the supported IR blasters listed above, configured in
+  Home Assistant via the appropriate integration
 * A Fujitsu air conditioner with an AR-RWE3E remote (or compatible
   ARREW4E-family model)
 * Home Assistant 2024.1 or later
@@ -22,7 +30,7 @@ IR protocol, so no pre-recorded codes are required.
 3. Click the three-dot menu (top right) and choose **Custom repositories**.
 4. Enter `https://github.com/adlaws/ha-fujitsu-broadlink-ir` as the repository URL and
    select **Integration** as the category.
-5. Click **Add**, then find **Fujitsu AC IR (Broadlink)** in the list and
+5. Click **Add**, then find **Fujitsu AC IR** in the list and
    click **Download**.
 6. Restart Home Assistant.
 
@@ -37,7 +45,11 @@ IR protocol, so no pre-recorded codes are required.
 1. Navigate to **Settings → Devices & Services → Add Integration**.
 2. Search for **Fujitsu AC IR** and select it.
 3. Enter a name for the air conditioner (e.g. "Lounge AC").
-4. Select the Broadlink remote entity that will transmit the IR commands.
+4. Select the IR transport type (Broadlink, ESPHome, SwitchBot, or Aqara).
+5. **Broadlink / SwitchBot / Aqara:** select the remote entity for your
+   IR blaster.
+   **ESPHome:** enter the ESPHome device node name (see
+   [ESPHome Setup](#esphome-setup) below).
 
 After completing the flow a `climate` entity and an **Outside Quiet**
 `switch` entity appear under the name you chose.
@@ -223,12 +235,57 @@ automation:
 
 Every state change (mode, temperature, fan, swing) assembles a **complete
 16-byte IR command** encoding the full desired AC state — exactly as the
-physical remote would. The integration then calls the
-`remote.send_command` service on the configured Broadlink entity, passing
-the base64-encoded Broadlink timing data.
+physical remote would. The integration converts the command bytes into
+raw mark/space IR timings (38 kHz carrier) and passes them to the
+configured transport backend:
+
+| Backend | Service Call | Data Format |
+|---------|-------------|-------------|
+| Broadlink | `remote.send_command` | Base64-encoded Broadlink packet |
+| ESPHome | `esphome.<node>_send_raw_ir` | Signed µs timing list |
+| SwitchBot | `remote.send_command` | JSON signed µs timing array |
+| Aqara | `remote.send_command` | JSON signed µs timing array |
 
 This means the AC always receives an unambiguous, self-contained command
 and the integration does not need to track incremental changes.
+
+### ESPHome Setup
+
+ESPHome devices require a custom API service that accepts raw IR timing
+data. Add the following to your ESPHome device YAML:
+
+```yaml
+remote_transmitter:
+    pin: GPIO4           # adjust for your board
+    carrier_duty_percent: 50%
+
+api:
+    actions:
+        - action: send_raw_ir
+          variables:
+              code: int[]
+          then:
+              - remote_transmitter.transmit_raw:
+                    carrier_frequency: 38kHz
+                    code: !lambda "return code;"
+```
+
+The integration calls `esphome.<node_name>_send_raw_ir` where
+`<node_name>` is the value you enter during configuration. For example,
+if your ESPHome device is named `ir_blaster`, the service will be
+`esphome.ir_blaster_send_raw_ir`.
+
+> **Note:** Older ESPHome versions use `api.services` instead of
+> `api.actions`. The generated Home Assistant service name is the same
+> either way.
+
+### SwitchBot / Aqara (experimental)
+
+SwitchBot and Aqara transports send raw IR timing data via
+`remote.send_command` on the respective remote entity. These backends
+are **experimental** — they require that the underlying HA integration
+forwards raw command strings to the hub hardware. Please open an issue
+if you encounter problems or can help verify the format.
 
 ## Lovelace Dashboard Card
 
@@ -322,8 +379,10 @@ cards:
 
 ### The AC does not respond to commands
 
-* Verify the Broadlink remote entity works by testing a simple IR command
+* Verify the IR blaster entity works by testing a simple IR command
   from the Home Assistant developer tools.
+* For **ESPHome**, confirm the `esphome.<node>_send_raw_ir` service
+  appears in Developer Tools → Services.
 * Ensure the IR blaster has line-of-sight to the AC's receiver.
 * Check the Home Assistant log for errors from the `fujitsu_ac_ir`
   component.
@@ -347,9 +406,10 @@ speed dropdown of the standard climate card.
 |------|---------|
 | `__init__.py` | Integration entry point — shared data store and IR send helper |
 | `climate.py` | `FujitsuACClimate` entity mapping HA climate API to IR commands |
-| `config_flow.py` | UI configuration flow — selects the Broadlink remote entity |
+| `config_flow.py` | UI configuration flow — transport type and device selection |
 | `const.py` | Protocol constants and configuration keys |
 | `ir_codec.py` | Self-contained IR encoder/decoder (`FujitsuACCodec`, `FujitsuACState`) |
+| `ir_transport.py` | Transport backends (Broadlink, ESPHome, SwitchBot, Aqara) |
 | `switch.py` | `FujitsuACOutsideQuietSwitch` entity for outside-unit quiet mode |
 | `services.yaml` | Timer service definitions (off, on, sleep, cancel) |
 | `manifest.json` | Integration metadata (domain, version, dependencies) |

@@ -3,7 +3,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Control a Fujitsu air conditioner via a Broadlink IR blaster by assembling
+Control a Fujitsu air conditioner via an IR blaster by assembling
 protocol-correct IR commands on the fly — no pre-recorded codes needed.
 
 ## Overview
@@ -16,7 +16,7 @@ and provides:
 * A standalone Python library for encoding and decoding Fujitsu IR commands
 * A developer tool for analysing recorded Broadlink IR codes
 * A Home Assistant custom integration (`climate` platform) that drives the
-  AC through a Broadlink IR blaster, including on/off/sleep timer support
+  AC through an IR blaster, including on/off/sleep timer support
 
 See the [Integration Documentation](docs/integration.md) for detailed
 configuration and usage within Home Assistant.
@@ -26,9 +26,9 @@ configuration and usage within Home Assistant.
 1. Open HACS in your Home Assistant instance.
 2. Select **Integrations**.
 3. Click the three-dot menu (top right) and choose **Custom repositories**.
-4. Enter `https://github.com/adlaws/ha-fujitsu` as the repository URL and
+4. Enter `https://github.com/adlaws/ha-fujitsu-broadlink-ir` as the repository URL and
    select **Integration** as the category.
-5. Click **Add**, then find **Fujitsu AC IR (Broadlink)** in the list and
+5. Click **Add**, then find **Fujitsu AC IR** in the list and
    click **Download**.
 6. Restart Home Assistant.
 7. Go to **Settings → Devices & Services → Add Integration** and search
@@ -37,7 +37,7 @@ configuration and usage within Home Assistant.
 ## Repository Layout
 
 ```text
-ha-fujitsu/
+ha-fujitsu-broadlink-ir/
 ├── custom_components/fujitsu_ac_ir/   Home Assistant integration
 │   ├── __init__.py
 │   ├── brand/                         Brand assets (icon, logo)
@@ -45,6 +45,7 @@ ha-fujitsu/
 │   ├── config_flow.py                 UI configuration flow
 │   ├── const.py                       Integration constants
 │   ├── ir_codec.py                    IR encode / decode logic
+│   ├── ir_transport.py                Transport backends (Broadlink, ESPHome, etc.)
 │   ├── manifest.json
 │   ├── services.yaml                  Timer entity service definitions
 │   ├── strings.json
