@@ -1,7 +1,7 @@
 """Fujitsu AC IR switch platform.
 
 Provides a Home Assistant Switch entity that controls the outside-unit
-quiet mode on a Fujitsu air conditioner via a Broadlink IR blaster.
+quiet mode on a Fujitsu air conditioner via an IR blaster.
 
 When enabled, the outdoor unit runs at reduced noise levels.  The flag
 is encoded in byte 14, bit 7 of the 16-byte Fujitsu IR protocol message.
@@ -20,7 +20,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import FujitsuACIRData, async_send_ir_command
-from .const import CONF_NAME, DEFAULT_NAME, DOMAIN
+from .const import CONF_NAME, DEFAULT_NAME, DOMAIN, VERSION
 
 
 async def async_setup_entry(
@@ -73,7 +73,7 @@ class FujitsuACOutsideQuietSwitch(SwitchEntity):
             name=name,
             manufacturer="Fujitsu",
             model="AR-RWE3E / ARREW4E",
-            sw_version="0.1.2",
+            sw_version=VERSION,
         )
 
     @property

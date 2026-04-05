@@ -99,6 +99,11 @@ BROADLINK_IR_TYPE = 0x26
 BROADLINK_TICK_US = 8192.0 / 269.0  # ~30.45 µs per tick
 
 # =============================================================================
+# IR Carrier
+# =============================================================================
+IR_CARRIER_FREQ_HZ = 38000  # Standard 38 kHz IR carrier frequency
+
+# =============================================================================
 # Home Assistant Config
 # =============================================================================
 DOMAIN = "fujitsu_ac_ir"
@@ -106,3 +111,4 @@ CONF_BROADLINK_DEVICE = "broadlink_device"
 CONF_TRANSPORT_TYPE = "transport_type"
 CONF_NAME = "name"
 DEFAULT_NAME = "Fujitsu AC"
+VERSION = "0.1.2"

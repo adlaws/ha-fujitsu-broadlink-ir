@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import abc
 import base64
+import json
 import logging
-from typing import Any
 
 from homeassistant.core import HomeAssistant
 
@@ -27,6 +27,12 @@ _LOGGER = logging.getLogger(__name__)
 # Transport identifiers (used in config entries)
 # ============================================================================
 TRANSPORT_BROADLINK = "broadlink"
+TRANSPORT_ESPHOME = "esphome"
+TRANSPORT_SWITCHBOT = "switchbot"
+TRANSPORT_AQARA = "aqara"
+
+# Transports that use a ``remote`` entity (entity selector in config flow).
+ENTITY_TRANSPORTS = frozenset({TRANSPORT_BROADLINK, TRANSPORT_SWITCHBOT, TRANSPORT_AQARA})
 
 # ============================================================================
 # Abstract base
@@ -41,25 +47,31 @@ class IRTransport(abc.ABC):
     transmits via the appropriate Home Assistant service call.
 
     :param hass: Home Assistant instance.
-    :param entity_id: The HA entity that controls the IR blaster.
+    :param device_ref: Identifier for the blaster device.  For most
+        transports this is a Home Assistant entity ID
+        (e.g. ``remote.broadlink_rm4``).  For ESPHome it is the
+        ESPHome device node name (e.g. ``ir_blaster``).
     """
 
-    def __init__(self, hass: HomeAssistant, entity_id: str) -> None:
+    def __init__(self, hass: HomeAssistant, device_ref: str) -> None:
         """Initialise the transport.
 
         :param hass: Home Assistant instance.
-        :param entity_id: Entity ID of the IR blaster device.
+        :param device_ref: Device reference (entity ID or device name).
         """
         self._hass = hass
-        self._entity_id = entity_id
+        self._device_ref = device_ref
 
     @property
     def entity_id(self) -> str:
-        """Return the entity ID of the IR blaster.
+        """Return the device reference string.
 
-        :return: Entity ID string.
+        For entity-based transports this is the entity ID; for ESPHome
+        it is the node name.
+
+        :return: Device reference string.
         """
-        return self._entity_id
+        return self._device_ref
 
     @abc.abstractmethod
     async def async_send_timings(self, timings_us: list[int]) -> None:
@@ -82,7 +94,7 @@ class BroadlinkTransport(IRTransport):
     packet format and sends via ``remote.send_command``.
 
     :param hass: Home Assistant instance.
-    :param entity_id: Entity ID of the Broadlink remote entity.
+    :param device_ref: Entity ID of the Broadlink remote entity.
     """
 
     async def async_send_timings(self, timings_us: list[int]) -> None:
@@ -91,26 +103,27 @@ class BroadlinkTransport(IRTransport):
         :param timings_us: Alternating mark/space durations in
             microseconds.
         """
-        b64_code = self._timings_to_broadlink(timings_us)
+        b64_code = self.timings_to_broadlink(timings_us)
         try:
             await self._hass.services.async_call(
                 "remote",
                 "send_command",
                 {
-                    "entity_id": self._entity_id,
+                    "entity_id": self._device_ref,
                     "command": f"b64:{b64_code}",
                 },
                 blocking=True,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.exception(
-                "Failed to send IR command via %s", self._entity_id
+                "Failed to send IR command via %s", self._device_ref
             )
+            raise
 
     # ----- Broadlink format helpers -----------------------------------------
 
     @staticmethod
-    def _timings_to_broadlink(
+    def timings_to_broadlink(
         timings_us: list[int], repeat: int = 0
     ) -> str:
         """Encode raw IR timings into Broadlink base64 format.
@@ -172,25 +185,213 @@ class BroadlinkTransport(IRTransport):
 
 
 # ============================================================================
+# ESPHome backend
+# ============================================================================
+
+
+class ESPHomeTransport(IRTransport):
+    """Send IR commands via an ESPHome device's custom API service.
+
+    The ESPHome device must expose an API service named
+    ``send_raw_ir`` that accepts a ``code`` parameter (``int[]``) and
+    forwards it to ``remote_transmitter.transmit_raw``.  See the
+    integration documentation for the required ESPHome YAML
+    configuration.
+
+    Raw timings are converted to **signed** integers: positive values
+    are marks (IR LED on), negative values are spaces (IR LED off).
+    This matches the format used by ESPHome's
+    ``remote_transmitter.transmit_raw`` action.
+
+    :param hass: Home Assistant instance.
+    :param device_ref: ESPHome device node name (e.g. ``ir_blaster``).
+    """
+
+    #: Name of the ESPHome API service to call (suffix after node name).
+    SERVICE_NAME = "send_raw_ir"
+
+    async def async_send_timings(self, timings_us: list[int]) -> None:
+        """Convert timings to signed format and send via ESPHome service.
+
+        :param timings_us: Alternating mark/space durations in
+            microseconds.
+        """
+        signed = self.timings_to_signed(timings_us)
+        service = f"{self._device_ref}_{self.SERVICE_NAME}"
+        try:
+            await self._hass.services.async_call(
+                "esphome",
+                service,
+                {"code": signed},
+                blocking=True,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "Failed to send IR via ESPHome service esphome.%s",
+                service,
+            )
+            raise
+
+    @staticmethod
+    def timings_to_signed(timings_us: list[int]) -> list[int]:
+        """Convert alternating mark/space timings to signed integers.
+
+        Even-indexed values (marks) stay positive; odd-indexed values
+        (spaces) are negated.
+
+        :param timings_us: Alternating mark/space durations in µs.
+        :return: Signed timing list for ESPHome ``transmit_raw``.
+        """
+        return [
+            us if i % 2 == 0 else -us
+            for i, us in enumerate(timings_us)
+        ]
+
+
+# ============================================================================
+# SwitchBot backend
+# ============================================================================
+
+
+class SwitchBotTransport(IRTransport):
+    """Send IR commands via a SwitchBot Hub remote entity.
+
+    The timing data is encoded as a JSON array of signed microsecond
+    values (positive = mark, negative = space) and sent via
+    ``remote.send_command``.
+
+    .. note::
+
+       This transport requires that the SwitchBot HA integration
+       (``switchbot_cloud``) forwards raw command strings to the Hub.
+       Support is **experimental** — see the integration documentation
+       for details and known limitations.
+
+    :param hass: Home Assistant instance.
+    :param device_ref: Entity ID of the SwitchBot remote entity.
+    """
+
+    async def async_send_timings(self, timings_us: list[int]) -> None:
+        """Encode timings and send via SwitchBot remote entity.
+
+        :param timings_us: Alternating mark/space durations in
+            microseconds.
+        """
+        command = self.timings_to_command(timings_us)
+        try:
+            await self._hass.services.async_call(
+                "remote",
+                "send_command",
+                {
+                    "entity_id": self._device_ref,
+                    "command": command,
+                },
+                blocking=True,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "Failed to send IR via SwitchBot %s", self._device_ref
+            )
+            raise
+
+    @staticmethod
+    def timings_to_command(timings_us: list[int]) -> str:
+        """Encode timings as a JSON array of signed µs values.
+
+        :param timings_us: Alternating mark/space durations in µs.
+        :return: JSON-encoded signed timing array string.
+        """
+        signed = [
+            us if i % 2 == 0 else -us
+            for i, us in enumerate(timings_us)
+        ]
+        return json.dumps(signed, separators=(",", ":"))
+
+
+# ============================================================================
+# Aqara backend
+# ============================================================================
+
+
+class AqaraTransport(IRTransport):
+    """Send IR commands via an Aqara Hub remote entity.
+
+    The timing data is encoded as a JSON array of signed microsecond
+    values (positive = mark, negative = space) and sent via
+    ``remote.send_command``.
+
+    .. note::
+
+       This transport requires that the Aqara HA integration forwards
+       raw command strings to the Hub.  Support is **experimental** —
+       see the integration documentation for details and known
+       limitations.
+
+    :param hass: Home Assistant instance.
+    :param device_ref: Entity ID of the Aqara remote entity.
+    """
+
+    async def async_send_timings(self, timings_us: list[int]) -> None:
+        """Encode timings and send via Aqara remote entity.
+
+        :param timings_us: Alternating mark/space durations in
+            microseconds.
+        """
+        command = self.timings_to_command(timings_us)
+        try:
+            await self._hass.services.async_call(
+                "remote",
+                "send_command",
+                {
+                    "entity_id": self._device_ref,
+                    "command": command,
+                },
+                blocking=True,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "Failed to send IR via Aqara %s", self._device_ref
+            )
+            raise
+
+    @staticmethod
+    def timings_to_command(timings_us: list[int]) -> str:
+        """Encode timings as a JSON array of signed µs values.
+
+        :param timings_us: Alternating mark/space durations in µs.
+        :return: JSON-encoded signed timing array string.
+        """
+        signed = [
+            us if i % 2 == 0 else -us
+            for i, us in enumerate(timings_us)
+        ]
+        return json.dumps(signed, separators=(",", ":"))
+
+
+# ============================================================================
 # Registry
 # ============================================================================
 
 TRANSPORT_REGISTRY: dict[str, type[IRTransport]] = {
     TRANSPORT_BROADLINK: BroadlinkTransport,
+    TRANSPORT_ESPHOME: ESPHomeTransport,
+    TRANSPORT_SWITCHBOT: SwitchBotTransport,
+    TRANSPORT_AQARA: AqaraTransport,
 }
 
 
 def create_transport(
     transport_type: str,
     hass: HomeAssistant,
-    entity_id: str,
+    device_ref: str,
 ) -> IRTransport:
     """Create an IR transport instance by type key.
 
     :param transport_type: Key from ``TRANSPORT_REGISTRY``
         (e.g. ``"broadlink"``).
     :param hass: Home Assistant instance.
-    :param entity_id: Entity ID of the blaster device.
+    :param device_ref: Entity ID of the blaster device, or ESPHome
+        device node name.
     :return: Configured transport instance.
     :raises ValueError: If the transport type is unknown.
     """
@@ -200,4 +401,4 @@ def create_transport(
             f"Unknown IR transport type: {transport_type!r}. "
             f"Valid types: {', '.join(TRANSPORT_REGISTRY)}"
         )
-    return transport_cls(hass, entity_id)
+    return transport_cls(hass, device_ref)

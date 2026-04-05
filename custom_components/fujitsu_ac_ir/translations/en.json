@@ -6,18 +6,37 @@
                 "description": "Configure a Fujitsu air conditioner controlled via an IR blaster.",
                 "data": {
                     "name": "Name",
-                    "transport_type": "IR Blaster Type",
-                    "broadlink_device": "IR Blaster Remote Entity"
+                    "transport_type": "IR Blaster Type"
                 },
                 "data_description": {
                     "name": "Friendly name for this air conditioner.",
-                    "transport_type": "The type of IR blaster hardware.",
+                    "transport_type": "The type of IR blaster hardware."
+                }
+            },
+            "blaster": {
+                "title": "Select IR Blaster Entity",
+                "description": "Choose the remote entity for your IR blaster.",
+                "data": {
+                    "broadlink_device": "IR Blaster Remote Entity"
+                },
+                "data_description": {
                     "broadlink_device": "The remote entity that will send IR commands (e.g. remote.broadlink_rm4)."
+                }
+            },
+            "esphome": {
+                "title": "ESPHome Device",
+                "description": "Enter the ESPHome device node name. The device must expose a 'send_raw_ir' API service. See the documentation for the required ESPHome YAML configuration.",
+                "data": {
+                    "broadlink_device": "ESPHome Device Name"
+                },
+                "data_description": {
+                    "broadlink_device": "The 'name' field from your ESPHome device YAML (e.g. ir_blaster)."
                 }
             }
         },
         "error": {
-            "entity_not_found": "The specified remote entity was not found."
+            "entity_not_found": "The specified remote entity was not found.",
+            "invalid_device_name": "Please enter a valid ESPHome device name."
         },
         "abort": {
             "already_configured": "This device is already configured for a Fujitsu AC."

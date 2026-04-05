@@ -1,7 +1,7 @@
 """Fujitsu AC IR climate platform.
 
 Provides a Home Assistant Climate entity that controls a Fujitsu air conditioner
-via a Broadlink IR blaster. Commands are assembled from the decoded Fujitsu IR
+via an IR blaster. Commands are assembled from the decoded Fujitsu IR
 protocol (AR-RWE3E / ARREW4E family, protocol 0x31).
 
 Each command sent encodes the FULL desired AC state (mode, temp, fan, swing),
@@ -68,6 +68,7 @@ from .const import (
     SWING_VERT as IR_SWING_VERT,
     TEMP_STEP,
     TIMER_MAX,
+    VERSION,
 )
 from .ir_codec import FujitsuACCodec
 
@@ -191,7 +192,7 @@ async def async_setup_entry(
 
 
 class FujitsuACClimate(ClimateEntity):
-    """Climate entity for Fujitsu AC controlled via Broadlink IR blaster."""
+    """Climate entity for Fujitsu AC controlled via IR blaster."""
 
     _attr_has_entity_name = True
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
@@ -239,7 +240,7 @@ class FujitsuACClimate(ClimateEntity):
             name=name,
             manufacturer="Fujitsu",
             model="AR-RWE3E / ARREW4E",
-            sw_version="0.1.2",
+            sw_version=VERSION,
         )
 
         # Initial HA state
@@ -318,7 +319,7 @@ class FujitsuACClimate(ClimateEntity):
     # =========================================================================
 
     async def _send_ir(self) -> None:
-        """Build the IR command from current state and send via Broadlink."""
+        """Build the IR command from current state and send via the configured transport."""
         self._data.ir_state.temperature = self._attr_target_temperature
         await async_send_ir_command(self.hass, self._data)
 
@@ -368,7 +369,7 @@ class FujitsuACClimate(ClimateEntity):
     async def async_set_off_timer(
         self,
         minutes: int | None = None,
-        time: datetime.time | None = None,
+        time: datetime.time | None = None,  # noqa: A002 — name required by HA service schema
     ) -> None:
         """Set an off timer — turn the AC off after the specified duration.
 
@@ -386,7 +387,7 @@ class FujitsuACClimate(ClimateEntity):
     async def async_set_on_timer(
         self,
         minutes: int | None = None,
-        time: datetime.time | None = None,
+        time: datetime.time | None = None,  # noqa: A002 — name required by HA service schema
         mode: str | None = None,
         temperature: float | None = None,
         fan_mode: str | None = None,
@@ -429,7 +430,7 @@ class FujitsuACClimate(ClimateEntity):
     async def async_set_sleep_timer(
         self,
         minutes: int | None = None,
-        time: datetime.time | None = None,
+        time: datetime.time | None = None,  # noqa: A002 — name required by HA service schema
     ) -> None:
         """Set a sleep timer — AC turns off with gradual comfort adjustment.
 

@@ -460,3 +460,108 @@ class TestCodecTimerDecoding:
         decoded = FujitsuACCodec.decode_bytes(ir_bytes)
         assert decoded.timer_type == TIMER_SLEEP
         assert decoded.off_timer_minutes == 90
+
+
+# =============================================================================
+# Additional edge cases (A4.2)
+# =============================================================================
+
+
+class TestCodecEdgeCases:
+    """Additional edge case tests for completeness."""
+
+    def test_build_state_change_is_long(self) -> None:
+        """build_state_change returns a 16-byte long message."""
+        state = FujitsuACState(power=True, mode=MODE_HEAT, temperature=26.0)
+        ir_bytes = FujitsuACCodec.build_state_change(state)
+        assert len(ir_bytes) == STATE_LENGTH
+        assert ir_bytes[5] == CMD_LONG_STATE
+
+    def test_build_state_change_checksum(self) -> None:
+        """build_state_change produces a valid checksum."""
+        state = FujitsuACState(power=True, mode=MODE_COOL, temperature=22.0)
+        ir_bytes = FujitsuACCodec.build_state_change(state)
+        assert (sum(ir_bytes[7:16]) & 0xFF) == 0
+
+    def test_build_state_change_preserves_settings(self) -> None:
+        """build_state_change encodes mode, fan, swing correctly."""
+        state = FujitsuACState(
+            power=True,
+            mode=MODE_DRY,
+            temperature=20.0,
+            fan=FAN_QUIET,
+            swing=SWING_BOTH,
+        )
+        ir_bytes = FujitsuACCodec.build_state_change(state)
+        decoded = FujitsuACCodec.decode_bytes(ir_bytes)
+        assert decoded.mode == MODE_DRY
+        assert decoded.temperature == 20.0
+        assert decoded.fan == FAN_QUIET
+        assert decoded.swing == SWING_BOTH
+
+    def test_build_on_timer_rejects_zero(self) -> None:
+        """On timer rejects 0 minutes."""
+        state = FujitsuACState(power=True)
+        with pytest.raises(ValueError, match="1\u2013720"):
+            FujitsuACCodec.build_on_timer(state, 0)
+
+    def test_build_on_timer_rejects_over_max(self) -> None:
+        """On timer rejects values over TIMER_MAX."""
+        state = FujitsuACState(power=True)
+        with pytest.raises(ValueError, match="1\u2013720"):
+            FujitsuACCodec.build_on_timer(state, 721)
+
+    def test_build_sleep_timer_rejects_zero(self) -> None:
+        """Sleep timer rejects 0 minutes."""
+        state = FujitsuACState(power=True)
+        with pytest.raises(ValueError, match="1\u2013720"):
+            FujitsuACCodec.build_sleep_timer(state, 0)
+
+    def test_build_sleep_timer_rejects_over_max(self) -> None:
+        """Sleep timer rejects values over TIMER_MAX."""
+        state = FujitsuACState(power=True)
+        with pytest.raises(ValueError, match="1\u2013720"):
+            FujitsuACCodec.build_sleep_timer(state, 721)
+
+    def test_build_off_timer_boundary_1(self) -> None:
+        """Off timer accepts the minimum value (1 minute)."""
+        state = FujitsuACState(power=True)
+        ir_bytes = FujitsuACCodec.build_off_timer(state, 1)
+        off_timer = (ir_bytes[11] & 0xFF) | ((ir_bytes[12] & 0x07) << 8)
+        assert off_timer == 1
+
+    def test_build_on_timer_boundary_1(self) -> None:
+        """On timer accepts the minimum value (1 minute)."""
+        state = FujitsuACState(power=True)
+        ir_bytes = FujitsuACCodec.build_on_timer(state, 1)
+        on_timer = ((ir_bytes[12] >> 4) & 0x0F) | ((ir_bytes[13] & 0x7F) << 4)
+        assert on_timer == 1
+
+    def test_build_sleep_timer_boundary_max(self) -> None:
+        """Sleep timer accepts the maximum value (720 minutes)."""
+        state = FujitsuACState(power=True)
+        ir_bytes = FujitsuACCodec.build_sleep_timer(state, TIMER_MAX)
+        off_timer = (ir_bytes[11] & 0xFF) | ((ir_bytes[12] & 0x07) << 8)
+        assert off_timer == TIMER_MAX
+
+    def test_bytes_to_timings_long_message(self) -> None:
+        """bytes_to_timings returns correct count for 16-byte messages."""
+        state = FujitsuACState(power=True)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
+        timings = FujitsuACCodec.bytes_to_timings(ir_bytes)
+        expected = 2 + (STATE_LENGTH * 8 * 2) + 2
+        assert len(timings) == expected
+
+    def test_header_bytes_correct(self) -> None:
+        """Fixed header bytes are correct in encoded output."""
+        state = FujitsuACState(power=True)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
+        assert ir_bytes[0] == HEADER_BYTE0
+        assert ir_bytes[1] == HEADER_BYTE1
+
+    def test_device_id_encoded(self) -> None:
+        """Device ID is encoded in byte 2."""
+        for dev_id in range(4):
+            state = FujitsuACState(power=True, device_id=dev_id)
+            ir_bytes = FujitsuACCodec.build_power_on(state)
+            assert (ir_bytes[2] >> 4) & 0x03 == dev_id
