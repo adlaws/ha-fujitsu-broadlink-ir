@@ -101,32 +101,29 @@ class TestCodecEncoding:
     """Tests for FujitsuACCodec encoding methods."""
 
     def test_build_power_off_is_short(self) -> None:
-        """Power-off code should decode to a 7-byte message."""
-        b64 = FujitsuACCodec.build_power_off()
-        raw = base64.b64decode(b64)
-        assert raw[0] == BROADLINK_IR_TYPE
+        """Power-off code should be a 7-byte short message."""
+        ir_bytes = FujitsuACCodec.build_power_off()
+        assert len(ir_bytes) == STATE_LENGTH_SHORT
+        assert ir_bytes[5] == CMD_TURN_OFF
 
     def test_build_power_on_checksum(self) -> None:
-        """Power-on code has a valid checksum when decoded back."""
+        """Power-on code has a valid checksum."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
         assert len(ir_bytes) == STATE_LENGTH
         assert (sum(ir_bytes[7:16]) & 0xFF) == 0
 
     def test_build_command_off(self) -> None:
         """build_command with power=False yields a power-off code."""
         state = FujitsuACState(power=False)
-        b64 = FujitsuACCodec.build_command(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_command(state)
         assert len(ir_bytes) == STATE_LENGTH_SHORT
         assert ir_bytes[5] == CMD_TURN_OFF
 
     def test_build_command_on(self) -> None:
         """build_command with power=True yields a full state code."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_command(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_command(state)
         assert len(ir_bytes) == STATE_LENGTH
         assert ir_bytes[5] == CMD_LONG_STATE
 
@@ -143,8 +140,7 @@ class TestCodecEncoding:
     def test_mode_encoding(self, mode: int, expected_bits: int) -> None:
         """Mode values are encoded correctly."""
         state = FujitsuACState(power=True, mode=mode)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
         assert ir_bytes[9] & 0x07 == expected_bits
 
     @pytest.mark.parametrize(
@@ -160,8 +156,7 @@ class TestCodecEncoding:
     def test_fan_encoding(self, fan: int, expected_bits: int) -> None:
         """Fan values are encoded correctly."""
         state = FujitsuACState(power=True, fan=fan)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
         assert ir_bytes[10] & 0x07 == expected_bits
 
     @pytest.mark.parametrize(
@@ -176,22 +171,19 @@ class TestCodecEncoding:
     def test_swing_encoding(self, swing: int, expected_bits: int) -> None:
         """Swing values are encoded correctly."""
         state = FujitsuACState(power=True, swing=swing)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
         assert (ir_bytes[10] >> 4) & 0x03 == expected_bits
 
     def test_outside_quiet_encoding(self) -> None:
         """Outside quiet flag is encoded in byte 14 bit 7."""
         state = FujitsuACState(power=True, outside_quiet=True)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
         assert ir_bytes[14] & 0x80 != 0
 
     def test_outside_quiet_off(self) -> None:
         """Outside quiet flag is clear when disabled."""
         state = FujitsuACState(power=True, outside_quiet=False)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
         assert ir_bytes[14] & 0x80 == 0
 
 
@@ -213,18 +205,16 @@ class TestCodecTemperature:
         ],
     )
     def test_arrew4e_temperature(self, temp_c: float, expected_raw: int) -> None:
-        """ARREW4E temperature formula: raw = (°C - 8) × 2."""
+        """ARREW4E temperature formula: raw = (deg C - 8) x 2."""
         state = FujitsuACState(power=True, temperature=temp_c)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
         raw = (ir_bytes[8] >> 2) & 0x3F
         assert raw == expected_raw
 
     def test_temperature_clamped_low(self) -> None:
         """Below-minimum temperatures are clamped."""
         state = FujitsuACState(power=True, temperature=5.0)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
         raw = (ir_bytes[8] >> 2) & 0x3F
         expected = int((MIN_TEMP - 8.0) * 2)
         assert raw == expected
@@ -232,8 +222,7 @@ class TestCodecTemperature:
     def test_temperature_clamped_high(self) -> None:
         """Above-maximum temperatures are clamped."""
         state = FujitsuACState(power=True, temperature=50.0)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
         raw = (ir_bytes[8] >> 2) & 0x3F
         expected = int((MAX_TEMP - 8.0) * 2)
         assert raw == expected
@@ -261,16 +250,14 @@ class TestCodecDecoding:
     def test_decode_rejects_bad_checksum(self) -> None:
         """Raise ValueError for checksum mismatch."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = bytearray(FujitsuACCodec.broadlink_to_bytes(b64))
+        ir_bytes = bytearray(FujitsuACCodec.build_power_on(state))
         ir_bytes[10] ^= 0xFF  # Corrupt
         with pytest.raises(ValueError, match="Checksum"):
             FujitsuACCodec.decode_bytes(bytes(ir_bytes))
 
     def test_decode_off_command(self) -> None:
         """Decoding a power-off message returns power=False."""
-        b64 = FujitsuACCodec.build_power_off()
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_off()
         state = FujitsuACCodec.decode_bytes(ir_bytes)
         assert state.power is False
 
@@ -284,8 +271,7 @@ class TestCodecDecoding:
             swing=SWING_VERT,
             outside_quiet=True,
         )
-        b64 = FujitsuACCodec.build_power_on(original)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_power_on(original)
         decoded = FujitsuACCodec.decode_bytes(ir_bytes)
 
         assert decoded.power is True
@@ -297,12 +283,12 @@ class TestCodecDecoding:
 
 
 # =============================================================================
-# Broadlink conversion
+# Broadlink conversion and timings
 # =============================================================================
 
 
 class TestCodecBroadlink:
-    """Tests for broadlink_to_bytes in the integration codec."""
+    """Tests for Broadlink format conversion in the integration codec."""
 
     def test_broadlink_rejects_invalid(self) -> None:
         """Raise ValueError for invalid Broadlink codes."""
@@ -310,8 +296,8 @@ class TestCodecBroadlink:
         with pytest.raises(ValueError, match="Invalid"):
             FujitsuACCodec.broadlink_to_bytes(bad)
 
-    def test_encode_decode_round_trip(self) -> None:
-        """Encode state → broadlink → decode — state fields must match."""
+    def test_broadlink_round_trip(self) -> None:
+        """Encode bytes -> broadlink -> decode -- bytes must match."""
         state = FujitsuACState(
             power=True,
             mode=MODE_COOL,
@@ -319,14 +305,31 @@ class TestCodecBroadlink:
             fan=FAN_LOW,
             swing=SWING_HORIZ,
         )
-        b64 = FujitsuACCodec.build_power_on(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
-        decoded = FujitsuACCodec.decode_bytes(ir_bytes)
+        ir_bytes = FujitsuACCodec.build_power_on(state)
+        b64 = FujitsuACCodec.bytes_to_broadlink(ir_bytes)
+        decoded_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        decoded = FujitsuACCodec.decode_bytes(decoded_bytes)
 
         assert decoded.mode == MODE_COOL
         assert decoded.temperature == 22.5
         assert decoded.fan == FAN_LOW
         assert decoded.swing == SWING_HORIZ
+
+    def test_bytes_to_timings_length(self) -> None:
+        """bytes_to_timings returns correct number of timing values."""
+        ir_bytes = FujitsuACCodec.build_power_off()
+        timings = FujitsuACCodec.bytes_to_timings(ir_bytes)
+        # Header (2) + bits (7 bytes x 8 bits x 2 values) + footer (2)
+        expected = 2 + (STATE_LENGTH_SHORT * 8 * 2) + 2
+        assert len(timings) == expected
+
+    def test_build_command_timings(self) -> None:
+        """build_command_timings produces timings matching bytes_to_timings."""
+        state = FujitsuACState(power=True)
+        timings = FujitsuACCodec.build_command_timings(state)
+        ir_bytes = FujitsuACCodec.build_command(state)
+        expected = FujitsuACCodec.bytes_to_timings(ir_bytes)
+        assert timings == expected
 
 
 # =============================================================================
@@ -340,23 +343,20 @@ class TestCodecTimerEncoding:
     def test_build_off_timer_checksum(self) -> None:
         """Off timer code has a valid checksum."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_off_timer(state, 60)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_off_timer(state, 60)
         assert len(ir_bytes) == STATE_LENGTH
         assert (sum(ir_bytes[7:16]) & 0xFF) == 0
 
     def test_build_off_timer_encodes_type(self) -> None:
         """Off timer sets timer type to TIMER_OFF in byte 9."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_off_timer(state, 30)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_off_timer(state, 30)
         assert (ir_bytes[9] >> 4) & 0x03 == TIMER_OFF
 
     def test_build_off_timer_value(self) -> None:
         """Off timer encodes the correct minute value."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_off_timer(state, 30)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_off_timer(state, 30)
         off_timer = (ir_bytes[11] & 0xFF) | ((ir_bytes[12] & 0x07) << 8)
         assert off_timer == 30
         assert bool(ir_bytes[12] & 0x08) is True  # OffTimerEnable
@@ -364,8 +364,7 @@ class TestCodecTimerEncoding:
     def test_build_on_timer_value(self) -> None:
         """On timer encodes the correct minute value."""
         state = FujitsuACState(power=True, mode=MODE_COOL, temperature=24.0)
-        b64 = FujitsuACCodec.build_on_timer(state, 510)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_on_timer(state, 510)
         assert (ir_bytes[9] >> 4) & 0x03 == TIMER_ON
         on_timer = ((ir_bytes[12] >> 4) & 0x0F) | ((ir_bytes[13] & 0x7F) << 4)
         assert on_timer == 510
@@ -374,16 +373,14 @@ class TestCodecTimerEncoding:
     def test_build_on_timer_max(self) -> None:
         """On timer at maximum (720 minutes / 12 hours)."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_on_timer(state, TIMER_MAX)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_on_timer(state, TIMER_MAX)
         on_timer = ((ir_bytes[12] >> 4) & 0x0F) | ((ir_bytes[13] & 0x7F) << 4)
         assert on_timer == TIMER_MAX
 
     def test_build_sleep_timer_value(self) -> None:
         """Sleep timer encodes correctly."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_sleep_timer(state, 180)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_sleep_timer(state, 180)
         assert (ir_bytes[9] >> 4) & 0x03 == TIMER_SLEEP
         off_timer = (ir_bytes[11] & 0xFF) | ((ir_bytes[12] & 0x07) << 8)
         assert off_timer == 180
@@ -391,8 +388,7 @@ class TestCodecTimerEncoding:
     def test_build_cancel_timer(self) -> None:
         """Cancel timer produces timer type TIMER_STOP with zero values."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_cancel_timer(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_cancel_timer(state)
         assert (ir_bytes[9] >> 4) & 0x03 == TIMER_STOP
         assert ir_bytes[11] == 0x00
         assert ir_bytes[12] == 0x00
@@ -401,20 +397,19 @@ class TestCodecTimerEncoding:
     def test_build_cancel_timer_when_off(self) -> None:
         """Cancel timer with power=False sends a short off command."""
         state = FujitsuACState(power=False)
-        b64 = FujitsuACCodec.build_cancel_timer(state)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_cancel_timer(state)
         assert len(ir_bytes) == STATE_LENGTH_SHORT
 
     def test_build_off_timer_rejects_zero(self) -> None:
         """Off timer rejects 0 minutes."""
         state = FujitsuACState(power=True)
-        with pytest.raises(ValueError, match="1–720"):
+        with pytest.raises(ValueError, match="1\u2013720"):
             FujitsuACCodec.build_off_timer(state, 0)
 
     def test_build_off_timer_rejects_over_max(self) -> None:
         """Off timer rejects values over TIMER_MAX."""
         state = FujitsuACState(power=True)
-        with pytest.raises(ValueError, match="1–720"):
+        with pytest.raises(ValueError, match="1\u2013720"):
             FujitsuACCodec.build_off_timer(state, 721)
 
     def test_build_on_timer_preserves_state(self) -> None:
@@ -426,8 +421,7 @@ class TestCodecTimerEncoding:
             fan=FAN_HIGH,
             swing=SWING_HORIZ,
         )
-        b64 = FujitsuACCodec.build_on_timer(state, 60)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_on_timer(state, 60)
         decoded = FujitsuACCodec.decode_bytes(ir_bytes)
         assert decoded.mode == MODE_HEAT
         assert decoded.temperature == 28.0
@@ -446,8 +440,7 @@ class TestCodecTimerDecoding:
     def test_decode_off_timer(self) -> None:
         """Decode an off timer message."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_off_timer(state, 120)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_off_timer(state, 120)
         decoded = FujitsuACCodec.decode_bytes(ir_bytes)
         assert decoded.timer_type == TIMER_OFF
         assert decoded.off_timer_minutes == 120
@@ -455,8 +448,7 @@ class TestCodecTimerDecoding:
     def test_decode_on_timer(self) -> None:
         """Decode an on timer message."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_on_timer(state, 450)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_on_timer(state, 450)
         decoded = FujitsuACCodec.decode_bytes(ir_bytes)
         assert decoded.timer_type == TIMER_ON
         assert decoded.on_timer_minutes == 450
@@ -464,8 +456,7 @@ class TestCodecTimerDecoding:
     def test_decode_sleep_timer(self) -> None:
         """Decode a sleep timer message."""
         state = FujitsuACState(power=True)
-        b64 = FujitsuACCodec.build_sleep_timer(state, 90)
-        ir_bytes = FujitsuACCodec.broadlink_to_bytes(b64)
+        ir_bytes = FujitsuACCodec.build_sleep_timer(state, 90)
         decoded = FujitsuACCodec.decode_bytes(ir_bytes)
         assert decoded.timer_type == TIMER_SLEEP
         assert decoded.off_timer_minutes == 90

@@ -10,10 +10,27 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
 )
 
-from .const import CONF_BROADLINK_DEVICE, CONF_NAME, DEFAULT_NAME, DOMAIN
+from .const import (
+    CONF_BROADLINK_DEVICE,
+    CONF_NAME,
+    CONF_TRANSPORT_TYPE,
+    DEFAULT_NAME,
+    DOMAIN,
+)
+from .ir_transport import TRANSPORT_BROADLINK, TRANSPORT_REGISTRY
+
+
+# Map transport key → human-readable label
+_TRANSPORT_OPTIONS = [
+    {"value": key, "label": key.title()}
+    for key in TRANSPORT_REGISTRY
+]
 
 
 class FujitsuACIRConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -33,14 +50,14 @@ class FujitsuACIRConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate the broadlink remote entity exists
-            broadlink_entity = user_input[CONF_BROADLINK_DEVICE]
-            state = self.hass.states.get(broadlink_entity)
+            # Validate the blaster entity exists
+            blaster_entity = user_input[CONF_BROADLINK_DEVICE]
+            state = self.hass.states.get(blaster_entity)
             if state is None:
                 errors[CONF_BROADLINK_DEVICE] = "entity_not_found"
             else:
                 await self.async_set_unique_id(
-                    f"fujitsu_ac_ir_{broadlink_entity}"
+                    f"fujitsu_ac_ir_{blaster_entity}"
                 )
                 self._abort_if_unique_id_configured()
 
@@ -52,6 +69,14 @@ class FujitsuACIRConfigFlow(ConfigFlow, domain=DOMAIN):
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_NAME, default=DEFAULT_NAME): TextSelector(),
+                vol.Required(
+                    CONF_TRANSPORT_TYPE, default=TRANSPORT_BROADLINK
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=_TRANSPORT_OPTIONS,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Required(CONF_BROADLINK_DEVICE): EntitySelector(
                     EntitySelectorConfig(domain="remote")
                 ),

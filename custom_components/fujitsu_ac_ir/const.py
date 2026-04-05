@@ -103,5 +103,6 @@ BROADLINK_TICK_US = 8192.0 / 269.0  # ~30.45 µs per tick
 # =============================================================================
 DOMAIN = "fujitsu_ac_ir"
 CONF_BROADLINK_DEVICE = "broadlink_device"
+CONF_TRANSPORT_TYPE = "transport_type"
 CONF_NAME = "name"
 DEFAULT_NAME = "Fujitsu AC"

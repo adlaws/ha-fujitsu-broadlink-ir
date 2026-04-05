@@ -3,22 +3,24 @@
         "step": {
             "user": {
                 "title": "Fujitsu AC IR Setup",
-                "description": "Configure a Fujitsu air conditioner controlled via a Broadlink IR blaster.",
+                "description": "Configure a Fujitsu air conditioner controlled via an IR blaster.",
                 "data": {
                     "name": "Name",
-                    "broadlink_device": "Broadlink Remote Entity"
+                    "transport_type": "IR Blaster Type",
+                    "broadlink_device": "IR Blaster Remote Entity"
                 },
                 "data_description": {
                     "name": "Friendly name for this air conditioner.",
-                    "broadlink_device": "The Broadlink remote entity that will send IR commands (e.g. remote.broadlink_rm4)."
+                    "transport_type": "The type of IR blaster hardware.",
+                    "broadlink_device": "The remote entity that will send IR commands (e.g. remote.broadlink_rm4)."
                 }
             }
         },
         "error": {
-            "entity_not_found": "The specified Broadlink remote entity was not found."
+            "entity_not_found": "The specified remote entity was not found."
         },
         "abort": {
-            "already_configured": "This Broadlink device is already configured for a Fujitsu AC."
+            "already_configured": "This device is already configured for a Fujitsu AC."
         }
     }
 }

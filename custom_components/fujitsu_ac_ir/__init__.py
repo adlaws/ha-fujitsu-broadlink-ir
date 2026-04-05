@@ -1,8 +1,12 @@
 """Fujitsu AC IR integration for Home Assistant.
 
-Controls a Fujitsu air conditioner via a Broadlink IR blaster by
-assembling full AC state IR commands using the decoded Fujitsu protocol
+Controls a Fujitsu air conditioner via an IR blaster by assembling
+full AC state IR commands using the decoded Fujitsu protocol
 (AR-RWE3E / ARREW4E family).
+
+The integration is transport-agnostic — the IR blaster backend
+(Broadlink, ESPHome, etc.) is selected during configuration and
+handled by :mod:`ir_transport`.
 """
 
 from __future__ import annotations
@@ -14,8 +18,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_BROADLINK_DEVICE, DOMAIN
+from .const import CONF_BROADLINK_DEVICE, CONF_TRANSPORT_TYPE, DOMAIN
 from .ir_codec import FujitsuACCodec, FujitsuACState
+from .ir_transport import (
+    TRANSPORT_BROADLINK,
+    IRTransport,
+    create_transport,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,11 +39,11 @@ class FujitsuACIRData:
     that every IR command carries the complete, up-to-date AC state.
 
     :param ir_state: Current desired AC state.
-    :param broadlink_entity: Entity ID of the Broadlink remote.
+    :param transport: IR blaster transport backend.
     """
 
     ir_state: FujitsuACState
-    broadlink_entity: str
+    transport: IRTransport
 
 
 async def async_send_ir_command(
@@ -46,7 +55,8 @@ async def async_send_ir_command(
     :param hass: Home Assistant instance.
     :param data: Shared integration runtime data.
     """
-    broadlink_code = FujitsuACCodec.build_command(data.ir_state)
+    ir_bytes = FujitsuACCodec.build_command(data.ir_state)
+    timings = FujitsuACCodec.bytes_to_timings(ir_bytes)
 
     _LOGGER.debug(
         "Sending Fujitsu AC IR: power=%s mode=%s temp=%.1f fan=%s swing=%s quiet=%s",
@@ -58,48 +68,22 @@ async def async_send_ir_command(
         data.ir_state.outside_quiet,
     )
 
-    await _send_broadlink_code(hass, data.broadlink_entity, broadlink_code)
+    await data.transport.async_send_timings(timings)
 
 
-async def async_send_ir_code(
+async def async_send_ir_bytes(
     hass: HomeAssistant,
-    broadlink_entity: str,
-    broadlink_code: str,
+    transport: IRTransport,
+    ir_bytes: bytes,
 ) -> None:
-    """Send a pre-built Broadlink base64 IR code.
+    """Send pre-built protocol bytes via the configured transport.
 
     :param hass: Home Assistant instance.
-    :param broadlink_entity: Entity ID of the Broadlink remote.
-    :param broadlink_code: Base64-encoded Broadlink IR code.
+    :param transport: IR blaster transport backend.
+    :param ir_bytes: Raw Fujitsu AC protocol bytes.
     """
-    await _send_broadlink_code(hass, broadlink_entity, broadlink_code)
-
-
-async def _send_broadlink_code(
-    hass: HomeAssistant,
-    broadlink_entity: str,
-    broadlink_code: str,
-) -> None:
-    """Send a Broadlink base64 IR code via the remote.send_command service.
-
-    :param hass: Home Assistant instance.
-    :param broadlink_entity: Entity ID of the Broadlink remote.
-    :param broadlink_code: Base64-encoded Broadlink IR code.
-    """
-    try:
-        await hass.services.async_call(
-            "remote",
-            "send_command",
-            {
-                "entity_id": broadlink_entity,
-                "command": f"b64:{broadlink_code}",
-            },
-            blocking=True,
-        )
-    except Exception:  # noqa: BLE001  # IR send failures are non-fatal
-        _LOGGER.exception(
-            "Failed to send IR command via %s", broadlink_entity
-        )
+    timings = FujitsuACCodec.bytes_to_timings(ir_bytes)
+    await transport.async_send_timings(timings)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -110,9 +94,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     :return: ``True`` if setup succeeded.
     """
     hass.data.setdefault(DOMAIN, {})
+
+    # Determine transport type — default to Broadlink for backward
+    # compatibility with config entries created before the transport
+    # selection was added.
+    transport_type = entry.data.get(CONF_TRANSPORT_TYPE, TRANSPORT_BROADLINK)
+    blaster_entity = entry.data[CONF_BROADLINK_DEVICE]
+    transport = create_transport(transport_type, hass, blaster_entity)
+
     hass.data[DOMAIN][entry.entry_id] = FujitsuACIRData(
         ir_state=FujitsuACState(),
-        broadlink_entity=entry.data[CONF_BROADLINK_DEVICE],
+        transport=transport,
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
